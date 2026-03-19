@@ -11,7 +11,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async signIn({ profile }) {
-      if (!profile?.sub) return true;
+      if (!profile?.sub) return false;
       const db = getDb();
       const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(profile.sub);
       if (!existing) {

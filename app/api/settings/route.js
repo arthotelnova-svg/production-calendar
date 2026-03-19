@@ -8,9 +8,13 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getDb();
-  const settings = db.prepare("SELECT * FROM settings WHERE user_id = ?").get(session.user.id);
-  return NextResponse.json(settings || { oklad: 135000, ot_rate: 164, ot_weekday: 2, ot_saturday: 8 });
+  try {
+    const db = getDb();
+    const settings = db.prepare("SELECT * FROM settings WHERE user_id = ?").get(session.user.id);
+    return NextResponse.json(settings || { oklad: 135000, ot_rate: 164, ot_weekday: 2, ot_saturday: 8 });
+  } catch {
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }
 
 export async function POST(request) {
@@ -19,13 +23,26 @@ export async function POST(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { oklad, ot_rate, ot_weekday, ot_saturday } = body;
+  try {
+    const body = await request.json();
+    const { oklad, ot_rate, ot_weekday, ot_saturday } = body;
 
-  const db = getDb();
-  db.prepare(
-    "INSERT OR REPLACE INTO settings (user_id, oklad, ot_rate, ot_weekday, ot_saturday) VALUES (?, ?, ?, ?, ?)"
-  ).run(session.user.id, oklad, ot_rate, ot_weekday, ot_saturday);
+    if (
+      typeof oklad !== "number" || !isFinite(oklad) || oklad < 0 ||
+      typeof ot_rate !== "number" || !isFinite(ot_rate) || ot_rate < 0 ||
+      typeof ot_weekday !== "number" || !isFinite(ot_weekday) || ot_weekday < 0 ||
+      typeof ot_saturday !== "number" || !isFinite(ot_saturday) || ot_saturday < 0
+    ) {
+      return NextResponse.json({ error: "Invalid settings data" }, { status: 400 });
+    }
 
-  return NextResponse.json({ ok: true });
+    const db = getDb();
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (user_id, oklad, ot_rate, ot_weekday, ot_saturday) VALUES (?, ?, ?, ?, ?)"
+    ).run(session.user.id, oklad, ot_rate, ot_weekday, ot_saturday);
+
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }

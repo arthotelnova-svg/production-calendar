@@ -1,5 +1,9 @@
 "use client";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { signOut } from "next-auth/react";
+import "./dashboard.css";
+
+const YEAR = 2026;
 
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const MONTHS_SHORT = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
@@ -18,25 +22,50 @@ const MONTHLY_DATA = [
   { work: 22, off: 8 }, { work: 22, off: 9 }, { work: 20, off: 10 }, { work: 22, off: 9 },
 ];
 
-function daysInMonth(m) { return new Date(2026, m + 1, 0).getDate(); }
-function firstDow(m) { const d = new Date(2026, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
-function dow(m, day) { const d = new Date(2026, m, day).getDay(); return d === 0 ? 6 : d - 1; }
+function daysInMonth(m) { return new Date(YEAR, m + 1, 0).getDate(); }
+function firstDow(m) { const d = new Date(YEAR, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
+function dow(m, day) { const d = new Date(YEAR, m, day).getDay(); return d === 0 ? 6 : d - 1; }
 function getDayType(month, day) {
   const key = `${month}-${day}`;
   if (HOLIDAYS.has(key)) return "holiday";
   if (PRE_HOLIDAY.has(key)) return "preholiday";
-  const d = new Date(2026, month, day).getDay();
+  const d = new Date(YEAR, month, day).getDay();
   if (d === 0 || d === 6) return "weekend";
   return "workday";
 }
-function isSaturday(m, d) { return new Date(2026, m, d).getDay() === 6; }
+function isSaturday(m, d) { return new Date(YEAR, m, d).getDay() === 6; }
+function countWorkDays(m, from, to) {
+  let count = 0;
+  for (let d = from; d <= to; d++) {
+    const t = getDayType(m, d);
+    if (t === "workday" || t === "preholiday") count++;
+  }
+  return count;
+}
+function sumOTHours(overtime, m, from, to) {
+  let hours = 0;
+  for (let d = from; d <= to; d++) hours += overtime[`${m}-${d}`] || 0;
+  return hours;
+}
+function isSelectable(m, d) {
+  const type = getDayType(m, d);
+  if (type === "holiday") return false;
+  if (new Date(YEAR, m, d).getDay() === 0) return false;
+  return true;
+}
 function fmt(n) { return n === 0 ? "0" : n.toLocaleString("ru-RU", { maximumFractionDigits: 2 }); }
 
 async function api(url, method = "GET", body = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  return res.json();
+  try {
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch (e) {
+    console.error("API error:", url, e);
+    return null;
+  }
 }
 
 export default function DashboardClient({ user }) {
@@ -51,6 +80,58 @@ export default function DashboardClient({ user }) {
   const [editVal, setEditVal] = useState("");
   const [loaded, setLoaded] = useState(false);
 
+  const [selMode, setSelMode] = useState(false);
+  const [selectedDays, setSelectedDays] = useState(new Set());
+  const [bulkVal, setBulkVal] = useState("");
+
+  const longPressTimer = useRef(null);
+  const touchMoved = useRef(false);
+  const selModeTimer = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (selModeTimer.current) clearTimeout(selModeTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelMode(false);
+    setSelectedDays(new Set());
+    setEditingDay(null);
+  }, [cm]);
+
+  const exitSelMode = useCallback(() => {
+    setSelMode(false);
+    setSelectedDays(new Set());
+    setBulkVal("");
+  }, []);
+
+  const enterSelMode = useCallback((day) => {
+    if (!isSelectable(cm, day)) return;
+    setEditingDay(null);
+    setSelMode(true);
+    setSelectedDays(new Set([day]));
+    setBulkVal("");
+    if (navigator.vibrate) navigator.vibrate(40);
+  }, [cm]);
+
+  const toggleDay = useCallback((day) => {
+    if (!isSelectable(cm, day)) return;
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) {
+        next.delete(day);
+        if (next.size === 0) {
+          if (selModeTimer.current) clearTimeout(selModeTimer.current);
+          selModeTimer.current = setTimeout(() => setSelMode(false), 50);
+        }
+      } else {
+        next.add(day);
+      }
+      return next;
+    });
+  }, [cm]);
+
   useEffect(() => {
     Promise.all([api("/api/settings"), api("/api/overtime")]).then(([s, o]) => {
       if (s && !s.error) {
@@ -61,7 +142,7 @@ export default function DashboardClient({ user }) {
       }
       if (o && !o.error) setOvertime(o);
       setLoaded(true);
-    });
+    }).catch(() => setLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -86,41 +167,70 @@ export default function DashboardClient({ user }) {
     saveOT(m, d, hours);
   }, [saveOT]);
 
+  const applyBulk = useCallback((hours) => {
+    if (selectedDays.size === 0) return;
+    const items = [...selectedDays].map((d) => ({ day: d, hours }));
+    setOvertime((prev) => {
+      const next = { ...prev };
+      selectedDays.forEach((d) => {
+        const key = `${cm}-${d}`;
+        if (hours <= 0) delete next[key]; else next[key] = hours;
+      });
+      return next;
+    });
+    api("/api/overtime", "POST", { bulk: true, month: cm, items });
+    exitSelMode();
+  }, [selectedDays, cm, exitSelMode]);
+
+  const confirmBulk = useCallback(() => {
+    const val = parseFloat(bulkVal) || 0;
+    applyBulk(val);
+  }, [bulkVal, applyBulk]);
+
   const fillMonth = useCallback((m) => {
     const total = daysInMonth(m);
     const items = [];
-    const next = { ...overtime };
+    const updates = {};
     for (let d = 1; d <= total; d++) {
       const type = getDayType(m, d);
       const key = `${m}-${d}`;
       if (type === "workday" || type === "preholiday") {
-        next[key] = otDefault;
+        updates[key] = otDefault;
         items.push({ day: d, hours: otDefault });
       } else if (isSaturday(m, d) && type === "weekend") {
-        next[key] = satDefault;
+        updates[key] = satDefault;
         items.push({ day: d, hours: satDefault });
       }
     }
-    setOvertime(next);
+    setOvertime((prev) => ({ ...prev, ...updates }));
     api("/api/overtime", "POST", { bulk: true, month: m, items });
-  }, [overtime, otDefault, satDefault]);
+  }, [otDefault, satDefault]);
 
   const clearMonth = useCallback((m) => {
-    const next = { ...overtime };
-    const total = daysInMonth(m);
-    for (let d = 1; d <= total; d++) delete next[`${m}-${d}`];
-    setOvertime(next);
+    setOvertime((prev) => {
+      const next = { ...prev };
+      const total = daysInMonth(m);
+      for (let d = 1; d <= total; d++) delete next[`${m}-${d}`];
+      return next;
+    });
     fetch(`/api/overtime?month=${m}`, { method: "DELETE" });
-  }, [overtime]);
+  }, []);
 
-  const handleDayClick = useCallback((m, d) => {
-    const type = getDayType(m, d);
+  const handleDayClick = useCallback((d) => {
+    const type = getDayType(cm, d);
     if (type === "holiday") return;
-    const key = `${m}-${d}`;
+    if (new Date(YEAR, cm, d).getDay() === 0) return;
+
+    if (selMode) {
+      toggleDay(d);
+      return;
+    }
+
+    const key = `${cm}-${d}`;
     if (editingDay === key) { setEditingDay(null); return; }
     setEditingDay(key);
     setEditVal(overtime[key]?.toString() || "");
-  }, [editingDay, overtime]);
+  }, [cm, selMode, editingDay, overtime, toggleDay]);
 
   const confirmEdit = useCallback(() => {
     if (!editingDay) return;
@@ -129,6 +239,21 @@ export default function DashboardClient({ user }) {
     setDayOT(ms, ds, val);
     setEditingDay(null);
   }, [editingDay, editVal, setDayOT]);
+
+  const startLongPress = useCallback((d) => {
+    if (!isSelectable(cm, d)) return;
+    touchMoved.current = false;
+    longPressTimer.current = setTimeout(() => {
+      if (!touchMoved.current) enterSelMode(d);
+    }, 400);
+  }, [cm, enterSelMode]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const monthStats = useMemo(() => {
     return MONTHS.map((_, m) => {
@@ -149,14 +274,29 @@ export default function DashboardClient({ user }) {
 
   const cmStats = monthStats[cm];
 
+  const payPeriods = useMemo(() => {
+    const totalWork = cmStats.workDays;
+    const end = daysInMonth(cm);
+    const wd1 = countWorkDays(cm, 1, 15);
+    const wd2 = countWorkDays(cm, 16, end);
+    const dayRate = totalWork > 0 ? oklad / totalWork : 0;
+    const ot1 = sumOTHours(overtime, cm, 1, 15);
+    const ot2 = sumOTHours(overtime, cm, 16, end);
+    const advance = dayRate * wd1 + ot1 * otRate;
+    const settlement = dayRate * wd2 + ot2 * otRate;
+    return { wd1, wd2, ot1, ot2, advance, settlement };
+  }, [cm, oklad, otRate, overtime, cmStats.workDays]);
+
   const totalDays = daysInMonth(cm);
   const first = firstDow(cm);
   const calCells = [];
   for (let i = 0; i < first; i++) calCells.push(<td key={`e${i}`} className="dc-empty" />);
+
   for (let d = 1; d <= totalDays; d++) {
     const type = getDayType(cm, d);
     const key = `${cm}-${d}`;
     const ot = overtime[key] || 0;
+    const isSel = selectedDays.has(d);
     const isEdit = editingDay === key;
     const isSat = isSaturday(cm, d);
     let cls = "dc";
@@ -166,17 +306,35 @@ export default function DashboardClient({ user }) {
     else cls += " dc-wd";
     if (ot > 0) cls += " dc-ot";
     if (isEdit) cls += " dc-edit";
+    if (isSel) cls += " dc-sel";
     const today = new Date();
-    if (today.getFullYear() === 2026 && today.getMonth() === cm && today.getDate() === d) cls += " dc-today";
+    if (today.getFullYear() === YEAR && today.getMonth() === cm && today.getDate() === d) cls += " dc-today";
 
     calCells.push(
-      <td key={d} className={cls} onClick={() => handleDayClick(cm, d)}>
+      <td
+        key={d}
+        className={cls}
+        onClick={() => handleDayClick(d)}
+        onMouseDown={() => !selMode && startLongPress(d)}
+        onMouseUp={cancelLongPress}
+        onMouseLeave={cancelLongPress}
+        onTouchStart={() => { touchMoved.current = false; if (!selMode) startLongPress(d); }}
+        onTouchMove={() => { touchMoved.current = true; cancelLongPress(); }}
+        onTouchEnd={cancelLongPress}
+        onContextMenu={(e) => { e.preventDefault(); if (!selMode) enterSelMode(d); }}
+      >
+        {selMode && isSelectable(cm, d) && (
+          <div className={`dc-check ${isSel ? "dc-check-on" : ""}`}>
+            {isSel ? "✓" : ""}
+          </div>
+        )}
         <div className="dc-num">{d}</div>
-        {ot > 0 && <div className="dc-badge">+{ot}ч</div>}
+        {ot > 0 && !isSel && <div className="dc-badge">+{ot}ч</div>}
         {type === "preholiday" && <div className="dc-star">*</div>}
       </td>
     );
   }
+
   const calRows = [];
   for (let i = 0; i < calCells.length; i += 7) calRows.push(<tr key={i}>{calCells.slice(i, i + 7)}</tr>);
 
@@ -194,47 +352,10 @@ export default function DashboardClient({ user }) {
 
   return (
     <div className="root">
-      <style>{`
-.root{font-family:'Manrope',sans-serif;min-height:100vh;background:#080c16;color:#e2ded8;padding:14px;box-sizing:border-box;max-width:960px;margin:0 auto}
-.root *{box-sizing:border-box}
-.hdr{text-align:center;margin-bottom:14px;position:relative}
-.hdr h1{font-family:'Unbounded';font-weight:800;font-size:20px;margin:0 0 2px;background:linear-gradient(135deg,#ff6b35,#ffb347,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hdr-sub{font-size:10px;color:#555b68}
-.badge{display:inline-block;background:linear-gradient(135deg,#ff6b35,#d44a10);color:#fff;font-family:'Unbounded';font-weight:800;font-size:12px;padding:2px 10px;border-radius:14px;margin-left:5px;vertical-align:middle}
-.user-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px}
-.user-bar img{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,107,53,.3)}
-.user-bar span{font-size:12px;color:#9ca3af}.user-bar a,.user-bar button{font-size:11px;color:#555b68;text-decoration:none;padding:3px 10px;border:1px solid rgba(255,255,255,.08);border-radius:6px;background:transparent;cursor:pointer}
-.user-bar a:hover,.user-bar button:hover{border-color:#ef4444;color:#ef4444}
-.tabs{display:flex;gap:3px;justify-content:center;margin-bottom:14px;background:rgba(255,255,255,.03);border-radius:10px;padding:3px}
-.tb{flex:1;padding:7px 8px;border:none;background:transparent;color:#555b68;font-family:'Manrope';font-size:11px;font-weight:700;cursor:pointer;border-radius:8px;transition:all .2s}
-.tb:hover{color:#e2ded8}.tb-a{background:linear-gradient(135deg,#ff6b35,#d44a10);color:#fff!important}
-.settings{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px;margin-bottom:14px}
-.settings-title{font-family:'Unbounded';font-size:11px;font-weight:600;color:#888e9b;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
-.s-row{display:flex;gap:10px;flex-wrap:wrap}.s-field{flex:1;min-width:120px}.s-field label{display:block;font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
-.s-input{width:100%;padding:7px 10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);border-radius:7px;color:#fff;font-family:'Manrope';font-size:13px;font-weight:600;outline:none;transition:border .2s}
-.s-input:focus{border-color:#ff6b35}.s-unit{font-size:9px;color:#555b68;margin-top:2px}
-.mstrip{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:14px}@media(max-width:500px){.mstrip{grid-template-columns:repeat(4,1fr)}}
-.mm{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 6px;text-align:center;cursor:pointer;transition:all .2s}.mm:hover{border-color:rgba(255,107,53,.25)}.mm-a{border-color:#ff6b35!important;background:rgba(255,107,53,.08)!important}.mm-has{border-color:rgba(16,185,129,.2)}
-.mm-name{font-family:'Unbounded';font-size:10px;font-weight:600;color:#9ca3af}.mm-a .mm-name{color:#ff6b35}.mm-total{font-size:11px;font-weight:700;color:#e2ded8;margin-top:2px}.mm-ot{font-size:9px;color:#10b981;font-weight:600;margin-top:1px}
-.summary{background:linear-gradient(135deg,rgba(255,107,53,.06),rgba(255,179,71,.02));border:1px solid rgba(255,107,53,.12);border-radius:14px;padding:14px;margin-bottom:14px}
-.sum-title{font-family:'Unbounded';font-size:12px;font-weight:600;color:#ff6b35;margin-bottom:10px}.sum-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.sg{text-align:center;padding:10px 8px;background:rgba(0,0,0,.15);border-radius:10px}
-.sg-v{font-family:'Unbounded';font-size:18px;font-weight:700}.sg-v.v-orange{color:#ff6b35}.sg-v.v-green{color:#10b981}.sg-v.v-blue{color:#60a5fa}.sg-l{font-size:9px;color:#6b7280;margin-top:2px}
-.sum-breakdown{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.04);font-size:12px;color:#9ca3af;line-height:1.8}.sb-line{display:flex;justify-content:space-between}.sb-val{font-weight:700;color:#e2ded8;font-family:'Unbounded';font-size:12px}.sb-total{font-size:14px;color:#ff6b35;border-top:2px solid rgba(255,107,53,.2);padding-top:6px;margin-top:4px}.sb-total .sb-val{color:#ff6b35;font-size:16px}
-.edit-bar{background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.2);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;animation:fadeIn .2s ease}@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
-.eb-label{font-size:12px;font-weight:600;color:#93c5fd;white-space:nowrap}.eb-input{width:70px;padding:5px 8px;background:rgba(0,0,0,.3);border:1px solid rgba(96,165,250,.3);border-radius:6px;color:#fff;font-family:'Manrope';font-size:14px;font-weight:700;outline:none;text-align:center}
-.eb-ok{padding:5px 14px;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:6px;color:#fff;font-family:'Manrope';font-size:12px;font-weight:700;cursor:pointer}.eb-del{padding:5px 14px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:6px;color:#ef4444;font-family:'Manrope';font-size:12px;font-weight:700;cursor:pointer}.eb-cancel{padding:5px 12px;background:transparent;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#6b7280;font-family:'Manrope';font-size:12px;font-weight:600;cursor:pointer}.eb-quick{display:flex;gap:4px;margin-left:auto}.eb-q{padding:3px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:5px;color:#9ca3af;font-size:10px;font-weight:600;cursor:pointer;font-family:'Manrope'}.eb-q:hover{border-color:#60a5fa;color:#60a5fa}
-.month-view{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px;margin-bottom:14px}.mv-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}.mv-title{font-family:'Unbounded';font-weight:700;font-size:16px;color:#eae5df}.mv-actions{display:flex;gap:6px;flex-wrap:wrap}.mv-btn{padding:5px 12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);color:#9ca3af;font-family:'Manrope';font-size:10px;font-weight:700;border-radius:7px;cursor:pointer;transition:all .2s;white-space:nowrap}.mv-btn:hover{border-color:#ff6b35;color:#ff6b35}.mv-btn-fill{background:linear-gradient(135deg,rgba(16,185,129,.15),rgba(16,185,129,.05));border-color:rgba(16,185,129,.3);color:#10b981}.mv-btn-clr{border-color:rgba(239,68,68,.2);color:#ef4444}
-.cal-tbl{width:100%;border-collapse:collapse;table-layout:fixed}.cal-tbl th{font-size:10px;font-weight:700;color:#3e4451;padding:4px 0;text-transform:uppercase}.th-we{color:#b91c1c!important}.dc{text-align:center;padding:4px 2px;border-radius:7px;position:relative;cursor:pointer;transition:all .12s;vertical-align:top;height:42px}.dc-empty{cursor:default}.dc-num{font-size:12px;font-weight:600;line-height:1}.dc-badge{font-size:8px;font-weight:700;color:#10b981;margin-top:1px;background:rgba(16,185,129,.1);border-radius:3px;padding:0 3px}.dc-star{position:absolute;top:1px;right:2px;font-size:7px;color:#f7c948}.dc-wd{color:#c5c0b8}.dc-wd:hover{background:rgba(255,255,255,.06)}.dc-sat{color:#ef4444;opacity:.7}.dc-sat:hover{background:rgba(239,68,68,.06);opacity:1}.dc-sun{color:#ef4444;cursor:default}.dc-hol{color:#fff;background:rgba(239,68,68,.15);font-weight:700;cursor:default}.dc-pre{color:#f7c948;background:rgba(247,201,72,.06)}.dc-pre:hover{background:rgba(247,201,72,.12)}.dc-ot{background:rgba(16,185,129,.08)!important}.dc-edit{outline:2px solid #60a5fa;outline-offset:-1px;background:rgba(96,165,250,.1)!important}.dc-today{box-shadow:inset 0 0 0 2px #ff6b35}
-.legend{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;font-size:10px;margin-bottom:10px}.lg{display:flex;align-items:center;gap:4px}.ld{width:10px;height:10px;border-radius:3px}.ld-wd{background:#1a2030;border:1px solid #2a3040}.ld-we{background:rgba(239,68,68,.12);border:1px solid #ef4444}.ld-hol{background:rgba(239,68,68,.25);border:1px solid #ef4444}.ld-pre{background:rgba(247,201,72,.1);border:1px solid #f7c948}.ld-ot{background:rgba(16,185,129,.12);border:1px solid #10b981}
-.yo-tbl{width:100%;border-collapse:collapse;font-size:11px}.yo-tbl th{background:rgba(255,255,255,.04);font-weight:700;padding:7px 5px;text-align:center;border-bottom:2px solid rgba(255,107,53,.2);font-size:9px;text-transform:uppercase;color:#6b7280}.yo-tbl td{padding:6px 5px;text-align:center;border-bottom:1px solid rgba(255,255,255,.025)}.yo-tbl tbody tr:hover{background:rgba(255,255,255,.02)}.yo-m{text-align:left!important;font-weight:600;color:#c5c0b8;cursor:pointer}.yo-m:hover{color:#ff6b35}.yo-h{color:#10b981;font-weight:600}.yo-p{color:#60a5fa;font-weight:600}.yo-t{color:#ff6b35;font-weight:700}.yo-total{background:rgba(255,107,53,.06)!important;font-weight:700;border-top:2px solid rgba(255,107,53,.3)}.yo-total .yo-m{color:#ff6b35;font-family:'Unbounded';font-size:11px;cursor:default}
-      `}</style>
-
       <div className="user-bar">
         {user.image && <img src={user.image} alt="" />}
         <span>{user.name}</span>
-        <form action="/api/auth/signout" method="post">
-          <button type="submit">Выйти</button>
-        </form>
+        <button onClick={() => signOut()}>Выйти</button>
       </div>
 
       <div className="hdr">
@@ -274,7 +395,7 @@ export default function DashboardClient({ user }) {
         </div>
 
         <div className="summary">
-          <div className="sum-title">{MONTHS[cm]} 2026</div>
+          <div className="sum-title">{MONTHS[cm]} {YEAR}</div>
           <div className="sum-grid">
             <div className="sg"><div className="sg-v v-blue">{cmStats.workDays}</div><div className="sg-l">рабочих дней</div></div>
             <div className="sg"><div className="sg-v v-green">{cmStats.otHours}</div><div className="sg-l">часов переработки</div></div>
@@ -285,9 +406,65 @@ export default function DashboardClient({ user }) {
             <div className="sb-line"><span>Переработка: {cmStats.otHours} ч × {fmt(otRate)} ₽</span><span className="sb-val">{fmt(cmStats.otPay)} ₽</span></div>
             <div className="sb-line sb-total"><span>Итого</span><span className="sb-val">{fmt(cmStats.total)} ₽</span></div>
           </div>
+          <div className="pay-periods">
+            <div className="pp">
+              <div className="pp-label">Аванс <span className="pp-range">1–15</span></div>
+              <div className="pp-row">
+                <span className="pp-type pp-type-card">💳 Карта</span>
+                <span className="pp-sum">{fmt(Math.round(oklad / cmStats.workDays * payPeriods.wd1))} ₽</span>
+              </div>
+              <div className="pp-row">
+                <span className="pp-type pp-type-cash">💵 Наличные</span>
+                <span className="pp-sum">{payPeriods.ot1 > 0 ? fmt(payPeriods.ot1 * otRate) + " ₽" : "—"}</span>
+              </div>
+              <div className="pp-total">{fmt(payPeriods.advance)} ₽</div>
+            </div>
+            <div className="pp-divider">+</div>
+            <div className="pp">
+              <div className="pp-label">Перерасчёт <span className="pp-range">16–{daysInMonth(cm)}</span></div>
+              <div className="pp-row">
+                <span className="pp-type pp-type-card">💳 Карта</span>
+                <span className="pp-sum">{fmt(Math.round(oklad / cmStats.workDays * payPeriods.wd2))} ₽</span>
+              </div>
+              <div className="pp-row">
+                <span className="pp-type pp-type-cash">💵 Наличные</span>
+                <span className="pp-sum">{payPeriods.ot2 > 0 ? fmt(payPeriods.ot2 * otRate) + " ₽" : "—"}</span>
+              </div>
+              <div className="pp-total">{fmt(payPeriods.settlement)} ₽</div>
+            </div>
+          </div>
         </div>
 
-        {editInfo && (
+        {selMode && (
+          <div className="sel-bar">
+            <div className="sel-bar-top">
+              <span className="sel-bar-title">Выбрано: {selectedDays.size} дн.</span>
+              <button className="sel-bar-cancel" onClick={exitSelMode}>Отменить выделение</button>
+            </div>
+            <div className="sel-bar-row">
+              <span className="sel-bar-label">Переработка:</span>
+              <input
+                className="sel-bar-input"
+                type="number" min="0" max="24" step="0.5"
+                value={bulkVal}
+                placeholder="—"
+                onChange={(e) => setBulkVal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmBulk(); if (e.key === "Escape") exitSelMode(); }}
+                autoFocus
+              />
+              <span className="sel-bar-label">ч</span>
+              <button className="sel-bar-ok" onClick={confirmBulk}>Применить</button>
+              <button className="sel-bar-del" onClick={() => applyBulk(0)}>Убрать</button>
+              <div className="sel-quick">
+                {[1, 2, 3, 4, 6, 8].map((h) => (
+                  <button key={h} className="sel-q" onClick={() => setBulkVal(h.toString())}>{h}ч</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editInfo && !selMode && (
           <div className="edit-bar">
             <span className="eb-label">{editInfo.d} {MONTHS_SHORT[editInfo.m]}, {WEEKDAYS[editInfo.dow]}
               {editInfo.type === "preholiday" ? " (сокр.)" : ""}{editInfo.isSat && editInfo.type === "weekend" ? " (сб)" : ""}
@@ -343,7 +520,7 @@ export default function DashboardClient({ user }) {
                   <td>{s.workDays}</td><td>{fmt(s.oklad)}</td><td className="yo-h">{s.otHours || "—"}</td>
                   <td className="yo-p">{s.otPay ? fmt(s.otPay) : "—"}</td><td className="yo-t">{fmt(s.total)}</td></tr>
               ))}
-              <tr className="yo-total"><td className="yo-m">2026 год</td><td>247</td><td>{fmt(yearTotals.oklad)}</td>
+              <tr className="yo-total"><td className="yo-m">{YEAR} год</td><td>247</td><td>{fmt(yearTotals.oklad)}</td>
                 <td className="yo-h">{yearTotals.otHours || "—"}</td><td className="yo-p">{yearTotals.otPay ? fmt(yearTotals.otPay) : "—"}</td>
                 <td className="yo-t">{fmt(yearTotals.total)}</td></tr>
             </tbody>
