@@ -1,46 +1,29 @@
 import NextAuth from "next-auth";
-import Google from "next-auth/providers/google";
+import { authConfig } from "./auth.config";
 import { getDb } from "./lib/db";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    }),
-  ],
+  ...authConfig,
   callbacks: {
+    ...authConfig.callbacks,
     async signIn({ profile }) {
       if (!profile?.sub) return false;
       const db = getDb();
-      const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(profile.sub);
-      if (!existing) {
-        db.prepare(
-          "INSERT INTO users (id, email, name, avatar) VALUES (?, ?, ?, ?)"
-        ).run(profile.sub, profile.email, profile.name, profile.picture);
-        db.prepare("INSERT INTO settings (user_id) VALUES (?)").run(profile.sub);
-      } else {
-        db.prepare(
-          "UPDATE users SET email = ?, name = ?, avatar = ? WHERE id = ?"
-        ).run(profile.email, profile.name, profile.picture, profile.sub);
-      }
+      const upsert = db.transaction((id, email, name, picture) => {
+        const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+        if (!existing) {
+          db.prepare(
+            "INSERT INTO users (id, email, name, avatar) VALUES (?, ?, ?, ?)"
+          ).run(id, email, name, picture);
+          db.prepare("INSERT INTO settings (user_id) VALUES (?)").run(id);
+        } else {
+          db.prepare(
+            "UPDATE users SET email = ?, name = ?, avatar = ? WHERE id = ?"
+          ).run(email, name, picture, id);
+        }
+      });
+      upsert(profile.sub, profile.email, profile.name, profile.picture);
       return true;
     },
-    async session({ session, token }) {
-      if (token?.sub && session?.user) {
-        session.user.id = token.sub;
-      }
-      return session;
-    },
-    async jwt({ token, profile }) {
-      if (profile?.sub) {
-        token.sub = profile.sub;
-      }
-      return token;
-    },
   },
-  pages: {
-    signIn: "/login",
-  },
-  trustHost: true,
 });

@@ -1,6 +1,6 @@
 import { auth } from "../../../auth";
 import { getDb } from "../../../lib/db";
-import { validateMonth, validateDay, validateHours } from "../../../lib/validators";
+import { validateMonth, validateDay } from "../../../lib/validators";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -11,10 +11,10 @@ export async function GET() {
 
   try {
     const db = getDb();
-    const rows = db.prepare("SELECT month, day, hours FROM overtime WHERE user_id = ?").all(session.user.id);
+    const rows = db.prepare("SELECT month, day FROM absences WHERE user_id = ?").all(session.user.id);
     const data = {};
     rows.forEach((r) => {
-      data[`${r.month}-${r.day}`] = r.hours;
+      data[`${r.month}-${r.day}`] = true;
     });
     return NextResponse.json(data);
   } catch {
@@ -37,43 +37,28 @@ export async function POST(request) {
 
   try {
     const db = getDb();
+    const ins = db.prepare("INSERT OR IGNORE INTO absences (user_id, month, day) VALUES (?, ?, ?)");
 
     if (body.bulk) {
       const month = validateMonth(body.month);
       if (month === null) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
       if (!Array.isArray(body.items)) return NextResponse.json({ error: "Invalid items" }, { status: 400 });
 
-      const validItems = [];
-      for (const item of body.items) {
-        const day = validateDay(item.day);
-        const hours = validateHours(item.hours);
-        if (day === null || hours === null) return NextResponse.json({ error: "Invalid item data" }, { status: 400 });
-        validItems.push({ day, hours });
-      }
-
-      const del = db.prepare("DELETE FROM overtime WHERE user_id = ? AND month = ?");
-      const ins = db.prepare("INSERT OR REPLACE INTO overtime (user_id, month, day, hours) VALUES (?, ?, ?, ?)");
       const txn = db.transaction((items, m) => {
-        del.run(session.user.id, m);
-        items.forEach(({ day, hours }) => {
-          if (hours > 0) ins.run(session.user.id, m, day, hours);
+        db.prepare("DELETE FROM absences WHERE user_id = ? AND month = ?").run(session.user.id, m);
+        items.forEach(({ day }) => {
+          const d = validateDay(day);
+          if (d !== null) ins.run(session.user.id, m, d);
         });
       });
-      txn(validItems, month);
+      txn(body.items, month);
     } else {
       const month = validateMonth(body.month);
       const day = validateDay(body.day);
-      const hours = validateHours(body.hours);
-      if (month === null || day === null || hours === null) {
+      if (month === null || day === null) {
         return NextResponse.json({ error: "Invalid data" }, { status: 400 });
       }
-      if (hours <= 0) {
-        db.prepare("DELETE FROM overtime WHERE user_id = ? AND month = ? AND day = ?")
-          .run(session.user.id, month, day);
-      } else {
-        db.prepare("INSERT OR REPLACE INTO overtime (user_id, month, day, hours) VALUES (?, ?, ?, ?)")
-          .run(session.user.id, month, day, hours);
-      }
+      ins.run(session.user.id, month, day);
     }
 
     return NextResponse.json({ ok: true });
@@ -91,13 +76,20 @@ export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);
     const monthParam = searchParams.get("month");
-    if (monthParam === null) return NextResponse.json({ error: "Missing month" }, { status: 400 });
+    const dayParam = searchParams.get("day");
 
     const month = validateMonth(monthParam);
     if (month === null) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
 
     const db = getDb();
-    db.prepare("DELETE FROM overtime WHERE user_id = ? AND month = ?").run(session.user.id, month);
+    if (dayParam !== null) {
+      const day = validateDay(dayParam);
+      if (day === null) return NextResponse.json({ error: "Invalid day" }, { status: 400 });
+      db.prepare("DELETE FROM absences WHERE user_id = ? AND month = ? AND day = ?").run(session.user.id, month, day);
+    } else {
+      db.prepare("DELETE FROM absences WHERE user_id = ? AND month = ?").run(session.user.id, month);
+    }
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
