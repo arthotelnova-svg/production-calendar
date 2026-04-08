@@ -3,52 +3,12 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { signOut } from "next-auth/react";
 import Image from "next/image";
 import "./dashboard.css";
-
-const YEAR = 2026;
-
-const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-const MONTHS_SHORT = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-const HOLIDAYS = new Set([
-  "0-1", "0-2", "0-3", "0-4", "0-5", "0-6", "0-7", "0-8", "0-9",
-  "1-23", "2-8", "2-9", "4-1", "4-2", "4-3", "4-9", "4-10", "4-11",
-  "5-12", "5-13", "5-14", "10-4", "11-31"
-]);
-const PRE_HOLIDAY = new Set(["3-30", "4-8", "5-11", "10-3"]);
-
-const MONTHLY_DATA = [
-  { work: 15, off: 16 }, { work: 19, off: 9 }, { work: 21, off: 10 }, { work: 22, off: 8 },
-  { work: 19, off: 12 }, { work: 21, off: 9 }, { work: 23, off: 8 }, { work: 21, off: 10 },
-  { work: 22, off: 8 }, { work: 22, off: 9 }, { work: 20, off: 10 }, { work: 22, off: 9 },
-];
-
-function daysInMonth(m) { return new Date(YEAR, m + 1, 0).getDate(); }
-function firstDow(m) { const d = new Date(YEAR, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
-function dow(m, day) { const d = new Date(YEAR, m, day).getDay(); return d === 0 ? 6 : d - 1; }
-function getDayType(month, day) {
-  const key = `${month}-${day}`;
-  if (HOLIDAYS.has(key)) return "holiday";
-  if (PRE_HOLIDAY.has(key)) return "preholiday";
-  const d = new Date(YEAR, month, day).getDay();
-  if (d === 0 || d === 6) return "weekend";
-  return "workday";
-}
-function isSaturday(m, d) { return new Date(YEAR, m, d).getDay() === 6; }
-function countWorkDays(m, from, to) {
-  let count = 0;
-  for (let d = from; d <= to; d++) {
-    const t = getDayType(m, d);
-    if (t === "workday" || t === "preholiday") count++;
-  }
-  return count;
-}
-function sumOTHours(overtime, m, from, to) {
-  let hours = 0;
-  for (let d = from; d <= to; d++) hours += overtime[`${m}-${d}`] || 0;
-  return hours;
-}
-function fmt(n) { return n === 0 ? "0" : n.toLocaleString("ru-RU", { maximumFractionDigits: 2 }); }
+import {
+  YEAR, MONTHS, MONTHS_SHORT, WEEKDAYS,
+  daysInMonth, firstDow, dow, isSaturday,
+  getDayType, countWorkDays, sumOTHours, fmt,
+  calcMonthStats, calcYearTotals,
+} from "../../lib/calendar";
 
 async function api(url, method = "GET", body = null, signal = null) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
@@ -286,32 +246,12 @@ export default function DashboardClient({ user }) {
     }
   }, []);
 
-  const monthStats = useMemo(() => {
-    return MONTHS.map((_, m) => {
-      let otHours = 0;
-      let absentCount = 0;
-      for (let d = 1; d <= daysInMonth(m); d++) {
-        const key = `${m}-${d}`;
-        if (overtime[key]) otHours += overtime[key];
-        if (absences[key]) absentCount++;
-      }
-      const workDays = MONTHLY_DATA[m].work;
-      const debtHours = absentCount * 8;
-      const effectiveOT = Math.max(0, otHours - debtHours);
-      const uncoveredHours = Math.max(0, debtHours - otHours);
-      const deduction = workDays > 0 ? (uncoveredHours / 8) * (oklad / workDays) : 0;
-      const adjustedOklad = oklad - deduction;
-      const otPay = effectiveOT * otRate;
-      const total = adjustedOklad + otPay;
-      return { workDays, otHours, absentCount, debtHours, effectiveOT, deduction, adjustedOklad, otPay, oklad, total };
-    });
-  }, [overtime, absences, otRate, oklad]);
+  const monthStats = useMemo(
+    () => calcMonthStats(overtime, absences, oklad, otRate),
+    [overtime, absences, oklad, otRate]
+  );
 
-  const yearTotals = useMemo(() => {
-    let otH = 0, otP = 0, totalDeduction = 0, adjOklad = 0;
-    monthStats.forEach((s) => { otH += s.effectiveOT; otP += s.otPay; totalDeduction += s.deduction; adjOklad += s.adjustedOklad; });
-    return { otHours: otH, otPay: otP, deduction: totalDeduction, oklad: adjOklad, total: adjOklad + otP };
-  }, [monthStats]);
+  const yearTotals = useMemo(() => calcYearTotals(monthStats), [monthStats]);
 
   const exportExcel = useCallback(async () => {
     const XLSX = await import("xlsx");
