@@ -1,6 +1,7 @@
 'use client';
 
 import GlassCard from './GlassCard';
+import AnimatedCard from './AnimatedCard';
 import styles from '../styles/glassmorphism.module.css';
 
 /**
@@ -9,7 +10,8 @@ import styles from '../styles/glassmorphism.module.css';
  */
 export default function AnalyticsDash({ overtimeData, year }) {
   return (
-    <GlassCard className={styles.analyticsDash}>
+    <AnimatedCard delay={100} parallax={true} className={styles.analyticsDash}>
+      <GlassCard className={styles.analyticsDash}>
       <h2>Analytics — {year}</h2>
       <div className={styles.metricsGrid}>
         <div className={styles.metricCard}>
@@ -27,6 +29,7 @@ export default function AnalyticsDash({ overtimeData, year }) {
       </div>
       {/* Charts will be added with Recharts in Phase 3 */}
       <div className={styles.chartPlaceholder}>Charts coming in Phase 3</div>
-    </GlassCard>
+      </GlassCard>
+    </AnimatedCard>
   );
 }

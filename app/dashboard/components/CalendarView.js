@@ -2,6 +2,7 @@
 
 import GlassCard from './GlassCard';
 import styles from '../styles/glassmorphism.module.css';
+import animations from '../styles/animations.module.css';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = [
@@ -118,11 +119,16 @@ export default function CalendarView({
           {Array.from({ length: Math.ceil(cells.length / 7) }).map(
             (_, weekIndex) => (
               <tr key={weekIndex}>
-                {cells.slice(weekIndex * 7, (weekIndex + 1) * 7).map((day, dayIndex) => (
+                {cells.slice(weekIndex * 7, (weekIndex + 1) * 7).map((day, dayIndex) => {
+                  const cellIndex = weekIndex * 7 + dayIndex;
+                  return (
                   <td key={dayIndex} className={styles.dayCellContainer}>
                     {day && (
                       <div
-                        className={getDayClasses(day)}
+                        className={`${getDayClasses(day)} ${animations.staggerItem}`}
+                        style={{
+                          animationDelay: `${cellIndex * 30}ms`,
+                        }}
                         data-day={day}
                         onClick={() => onSelectDay?.(month, day)}
                         role="button"
@@ -138,7 +144,8 @@ export default function CalendarView({
                       </div>
                     )}
                   </td>
-                ))}
+                );
+                })}
               </tr>
             )
           )}
