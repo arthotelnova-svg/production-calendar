@@ -1,5 +1,6 @@
 'use client';
 
+import AnimatedButton from './AnimatedButton';
 import styles from '../styles/glassmorphism.module.css';
 
 /**
@@ -17,7 +18,7 @@ export default function TabNav({ activeTab, onTabChange }) {
   return (
     <nav className={styles.tabNav}>
       {tabs.map((tab) => (
-        <button
+        <AnimatedButton
           key={tab.id}
           className={`${styles.tabButton} ${activeTab === tab.id ? styles.active : ''}`}
           onClick={() => onTabChange(tab.id)}
@@ -25,7 +26,7 @@ export default function TabNav({ activeTab, onTabChange }) {
         >
           <span className={styles.tabIcon}>{tab.icon}</span>
           <span>{tab.label}</span>
-        </button>
+        </AnimatedButton>
       ))}
     </nav>
   );

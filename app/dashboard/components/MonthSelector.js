@@ -1,7 +1,9 @@
 'use client';
 
 import GlassCard from './GlassCard';
+import AnimatedCard from './AnimatedCard';
 import styles from '../styles/glassmorphism.module.css';
+import animations from '../styles/animations.module.css';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -21,14 +23,19 @@ export default function MonthSelector({ selectedMonth = 0, data = {}, onSelect }
       {MONTHS.map((month, index) => {
         const monthData = data[index] || { ot: 0, absent: 0 };
         return (
-          <GlassCard
+          <AnimatedCard
             key={month}
-            isActive={selectedMonth === index}
-            onClick={() => onSelect?.(index)}
-            data-month={index}
+            delay={index * 30}
+            onHover={true}
+            parallax={false}
             className={styles.monthCard}
-            title={`${month} 2026`}
           >
+            <GlassCard
+              isActive={selectedMonth === index}
+              onClick={() => onSelect?.(index)}
+              data-month={index}
+              title={`${month} 2026`}
+            >
             <div className={styles.monthCardTitle}>{month}</div>
             <div className={styles.monthCardYear}>2026</div>
             <div className={styles.monthCardStats}>
@@ -45,7 +52,8 @@ export default function MonthSelector({ selectedMonth = 0, data = {}, onSelect }
                 </span>
               </div>
             </div>
-          </GlassCard>
+            </GlassCard>
+          </AnimatedCard>
         );
       })}
     </div>
