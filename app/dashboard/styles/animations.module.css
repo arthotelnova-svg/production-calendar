@@ -1,0 +1,201 @@
+/* Fade In */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fadeIn {
+  animation: fadeIn var(--transition-slow) ease-out;
+}
+
+/* Fade In + Scale */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.fadeInScale {
+  animation: fadeInScale var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Slide Up */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slideUp {
+  animation: slideUp var(--transition-normal) ease-out;
+}
+
+/* Scale Click (Click feedback) */
+@keyframes scaleClick {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.98);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.scaleClick {
+  animation: scaleClick 150ms ease-out;
+}
+
+/* Glow (Focus state) */
+@keyframes glow {
+  from {
+    box-shadow: 0 0 0 0 rgba(108, 99, 255, 0.7);
+  }
+  to {
+    box-shadow: 0 0 0 12px rgba(108, 99, 255, 0);
+  }
+}
+
+.glow {
+  animation: glow 1.5s ease-out;
+}
+
+/* Shake (Error state) */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.shake {
+  animation: shake 200ms ease-in-out;
+}
+
+/* Pulse (Loading/pending) */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Spin (Loading) */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Bounce (Success) */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.bounce {
+  animation: bounce 400ms ease-out;
+}
+
+/* Parallax scroll effect (subtle depth) */
+@keyframes parallaxDepth {
+  0% {
+    filter: blur(0px);
+  }
+  100% {
+    filter: blur(1px);
+  }
+}
+
+.parallaxContainer {
+  position: relative;
+}
+
+.parallaxContainer.scrolled {
+  animation: parallaxDepth 300ms ease-out;
+}
+
+/* Stagger animation for lists (each item delayed) */
+.staggerItem {
+  animation: slideUp var(--transition-normal) ease-out;
+}
+
+.staggerItem:nth-child(1) { animation-delay: 0ms; }
+.staggerItem:nth-child(2) { animation-delay: 50ms; }
+.staggerItem:nth-child(3) { animation-delay: 100ms; }
+.staggerItem:nth-child(4) { animation-delay: 150ms; }
+.staggerItem:nth-child(5) { animation-delay: 200ms; }
+.staggerItem:nth-child(6) { animation-delay: 250ms; }
+.staggerItem:nth-child(n+7) { animation-delay: 300ms; }
+
+/* Page transition (fade + scale combo) */
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.pageEnter {
+  animation: pageEnter var(--transition-slow) cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Reduced motion fallbacks */
+@media (prefers-reduced-motion: reduce) {
+  .fadeIn,
+  .fadeInScale,
+  .slideUp,
+  .scaleClick,
+  .glow,
+  .shake,
+  .pulse,
+  .spin,
+  .bounce,
+  .parallaxContainer.scrolled,
+  .staggerItem,
+  .pageEnter {
+    animation: none;
+    transform: none;
+  }
+}
