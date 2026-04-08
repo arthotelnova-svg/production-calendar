@@ -11,7 +11,8 @@
     "test:e2e": "cypress run",
     "test:e2e:ui": "cypress open",
     "test:a11y": "cypress run --spec 'cypress/e2e/accessibility.cy.js'",
-    "test:lighthouse": "npm run build && npm start & sleep 5 && node scripts/lighthouse.js http://localhost:3000 && kill %1"
+    "test:lighthouse": "npm run build && npm start & sleep 5 && node scripts/lighthouse.js http://localhost:3000 && kill %1",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",
