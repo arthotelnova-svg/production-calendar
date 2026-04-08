@@ -139,12 +139,36 @@
   font-weight: 600;
 }
 
+/* Calendar Container */
+.calendarContainer {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Calendar Title */
+.calendarTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 /* Calendar Grid */
 .calendarGrid {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
   user-select: none;
+}
+
+/* Day Cell Container (td wrapper) */
+.dayCellContainer {
+  padding: var(--space-xs);
+  aspect-ratio: 1;
+  min-width: 50px;
+  border: 1px solid var(--color-border-light);
 }
 
 .calendarHeader {
@@ -212,6 +236,15 @@
   background: var(--color-surface-hover);
   border: 2px solid var(--color-primary-start);
   box-shadow: 0 0 12px rgba(108, 99, 255, 0.3);
+}
+
+.otBadge {
+  font-size: 9px;
+  color: var(--color-success);
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+  display: block;
+  margin-top: 2px;
 }
 
 /* Tab Navigation (Mobile) */
