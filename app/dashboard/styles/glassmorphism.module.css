@@ -1,0 +1,298 @@
+/* Glass Card Base */
+.glassCard {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  padding: var(--space-xl);
+  transition: all var(--transition-normal);
+}
+
+.glassCard:hover {
+  background: var(--color-surface-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: var(--glass-shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* Buttons */
+.btnPrimary {
+  background: linear-gradient(135deg, var(--color-primary-start), var(--color-primary-end));
+  color: white;
+  border: none;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 12px rgba(108, 99, 255, 0.3);
+}
+
+.btnPrimary:hover {
+  box-shadow: 0 8px 20px rgba(108, 99, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+.btnPrimary:active {
+  transform: translateY(0);
+}
+
+.btnSecondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: var(--glass-border);
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btnSecondary:hover {
+  background: var(--color-surface-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Input Fields */
+.inputField {
+  background: var(--color-surface);
+  border: var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-text-primary);
+  font-family: 'Sora', sans-serif;
+  font-size: 14px;
+  transition: all var(--transition-fast);
+}
+
+.inputField:focus {
+  outline: none;
+  background: var(--color-surface-hover);
+  border-color: rgba(108, 99, 255, 0.5);
+  box-shadow: 0 0 12px rgba(108, 99, 255, 0.3);
+}
+
+/* Month Card (Navigation) */
+.monthCard {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  padding: var(--space-lg);
+  text-align: center;
+  aspect-ratio: 3 / 2.5;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  position: relative;
+  transition: all var(--transition-normal);
+}
+
+.monthCard:hover {
+  background: var(--color-surface-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow: var(--glass-shadow-hover);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.monthCard.active {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary-start);
+  box-shadow: 0 0 12px rgba(108, 99, 255, 0.3);
+}
+
+.monthCardTitle {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'Sora', sans-serif;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.monthCardYear {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+}
+
+.monthCardStats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.monthCardStatItem {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.monthCardStatValue {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+/* Calendar Grid */
+.calendarGrid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  user-select: none;
+}
+
+.calendarHeader {
+  background: var(--color-surface);
+  border-bottom: 2px solid var(--color-primary-start);
+  padding: var(--space-md);
+  text-align: center;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.dayCell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  position: relative;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+  font-weight: 600;
+  min-height: 50px;
+  background: transparent;
+}
+
+.dayCell:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.dayCell.weekend {
+  color: var(--color-danger);
+}
+
+.dayCell.holiday {
+  background: rgba(239, 68, 68, 0.15);
+  color: white;
+  font-weight: 700;
+  border-color: var(--color-danger);
+}
+
+.dayCell.overtime {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: var(--color-success);
+}
+
+.dayCell.absence {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--color-danger);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.dayCell.today {
+  box-shadow: inset 0 0 0 2px var(--color-primary-start);
+}
+
+.dayCell.selected {
+  background: var(--color-surface-hover);
+  border: 2px solid var(--color-primary-start);
+  box-shadow: 0 0 12px rgba(108, 99, 255, 0.3);
+}
+
+/* Tab Navigation (Mobile) */
+.tabNav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--color-bg-dark);
+  border-top: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  display: flex;
+  justify-content: space-around;
+  padding: var(--space-sm);
+  z-index: 1000;
+  safe-area-inset-bottom: env(safe-area-inset-bottom);
+}
+
+.tabButton {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--transition-fast);
+}
+
+.tabButton.active {
+  color: var(--color-primary-start);
+}
+
+.tabButton:hover {
+  color: var(--color-text-primary);
+}
+
+.tabIcon {
+  font-size: 24px;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .glassCard {
+    padding: var(--space-lg);
+  }
+
+  .dayCell {
+    min-height: 40px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .glassCard {
+    padding: var(--space-md);
+  }
+
+  .monthCardTitle {
+    font-size: 14px;
+  }
+
+  .dayCell {
+    min-height: 35px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glassCard,
+  .btnPrimary,
+  .btnSecondary,
+  .inputField,
+  .monthCard,
+  .dayCell,
+  .tabButton {
+    transition: none;
+    transform: none !important;
+  }
+}
