@@ -12,6 +12,9 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "next-auth": "5.0.0-beta.30",
-    "better-sqlite3": "11.6.0"
+    "better-sqlite3": "11.6.0",
+    "googleapis": "^140.0.0",
+    "recharts": "^2.10.3",
+    "@microsoft/microsoft-graph-client": "^3.0.7"
   }
 }
