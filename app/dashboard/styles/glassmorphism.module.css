@@ -317,6 +317,61 @@
   }
 }
 
+/* Tab Navigation (Bottom PWA Nav) */
+.tabNav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border-top: var(--glass-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-sm) var(--space-xs);
+  gap: var(--space-xs);
+  z-index: 1000;
+  box-shadow: 0 -4px 16px rgba(31, 38, 135, 0.1);
+}
+
+.tabButton {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-sm);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tabButton:hover {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+.tabButton.active {
+  background: linear-gradient(135deg, rgba(108, 99, 255, 0.2), rgba(102, 126, 234, 0.2));
+  color: var(--color-primary-start);
+  border: 1px solid rgba(108, 99, 255, 0.3);
+}
+
+.tabIcon {
+  font-size: 20px;
+}
+
+/* Adjust main content to not overlap with bottom nav */
+.dashboardContent {
+  padding-bottom: calc(var(--space-3xl) + 60px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .glassCard,
   .btnPrimary,
