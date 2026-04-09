@@ -9,215 +9,47 @@ import {
   getDayType, countWorkDays, sumOTHours, fmt,
   calcMonthStats, calcYearTotals,
 } from "../../lib/calendar";
-
-async function api(url, method = "GET", body = null, signal = null) {
-  const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (body) opts.body = JSON.stringify(body);
-  if (signal) opts.signal = signal;
-  try {
-    const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  } catch (e) {
-    if (e.name === "AbortError") return "aborted";
-    console.error("API error:", url, e);
-    return null;
-  }
-}
+import useCalendarData from "./hooks/useCalendarData";
+import useSelectionMode from "./hooks/useSelectionMode";
 
 export default function DashboardClient({ user }) {
+  const {
+    oklad, setOklad,
+    otRate, setOtRate,
+    otDefault, setOtDefault,
+    satDefault, setSatDefault,
+    overtime, absences,
+    loaded, saveError,
+    setDayOT, applyBulkOT, fillMonth, clearMonth, toggleAbsence,
+  } = useCalendarData();
+
+  const {
+    selMode, selectedDays,
+    bulkVal, setBulkVal,
+    exitSelMode, enterSelMode, toggleDay,
+    startLongPress, cancelLongPress,
+    touchMoved,
+  } = useSelectionMode();
+
   const [tab, setTab] = useState("calc");
   const [cm, setCm] = useState(new Date().getMonth());
-  const [oklad, setOklad] = useState(135000);
-  const [otRate, setOtRate] = useState(164);
-  const [otDefault, setOtDefault] = useState(2);
-  const [satDefault, setSatDefault] = useState(8);
-  const [overtime, setOvertime] = useState({});
   const [editingDay, setEditingDay] = useState(null);
   const [editVal, setEditVal] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [saveError, setSaveError] = useState(false);
 
-  const [absences, setAbsences] = useState({});
-
-  const [selMode, setSelMode] = useState(false);
-  const [selectedDays, setSelectedDays] = useState(new Set());
-  const [bulkVal, setBulkVal] = useState("");
-
-  const longPressTimer = useRef(null);
-  const touchMoved = useRef(false);
-  const selModeTimer = useRef(null);
   const yearTableRef = useRef(null);
   const monthViewRef = useRef(null);
-  const settingsAbortRef = useRef(null);
 
+  // Reset selection and edit when changing month
   useEffect(() => {
-    return () => {
-      if (selModeTimer.current) clearTimeout(selModeTimer.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    setSelMode(false);
-    setSelectedDays(new Set());
-    setEditingDay(null);
-  }, [cm]);
-
-  const exitSelMode = useCallback(() => {
-    setSelMode(false);
-    setSelectedDays(new Set());
-    setBulkVal("");
-  }, []);
-
-  const enterSelMode = useCallback((day) => {
-    setEditingDay(null);
-    setSelMode(true);
-    setSelectedDays(new Set([day]));
-    setBulkVal("");
-    if (navigator.vibrate) navigator.vibrate(40);
-  }, []);
-
-  const toggleDay = useCallback((day) => {
-    setSelectedDays((prev) => {
-      const next = new Set(prev);
-      if (next.has(day)) {
-        next.delete(day);
-        if (next.size === 0) {
-          if (selModeTimer.current) clearTimeout(selModeTimer.current);
-          selModeTimer.current = setTimeout(() => setSelMode(false), 50);
-        }
-      } else {
-        next.add(day);
-      }
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    Promise.all([api("/api/settings"), api("/api/overtime"), api("/api/absences")]).then(([s, o, a]) => {
-      if (s && !s.error) {
-        setOklad(s.oklad ?? 135000);
-        setOtRate(s.ot_rate ?? 164);
-        setOtDefault(s.ot_weekday ?? 2);
-        setSatDefault(s.ot_saturday ?? 8);
-      }
-      if (o && !o.error) setOvertime(o);
-      if (a && !a.error) setAbsences(a);
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(async () => {
-      if (settingsAbortRef.current) settingsAbortRef.current.abort();
-      settingsAbortRef.current = new AbortController();
-      const result = await api("/api/settings", "POST", { oklad, ot_rate: otRate, ot_weekday: otDefault, ot_saturday: satDefault }, settingsAbortRef.current.signal);
-      if (result === null) {
-        setSaveError(true);
-        setTimeout(() => setSaveError(false), 4000);
-      }
-    }, 800);
-    return () => clearTimeout(t);
-  }, [oklad, otRate, otDefault, satDefault, loaded]);
-
-  const saveOT = useCallback((m, d, hours) => {
-    api("/api/overtime", "POST", { month: m, day: d, hours }).then((result) => {
-      if (result === null) {
-        setSaveError(true);
-        setTimeout(() => setSaveError(false), 4000);
-      }
-    });
-  }, []);
-
-  const toggleAbsence = useCallback((m, d) => {
-    const key = `${m}-${d}`;
-    const isAbsent = absences[key];
-    setAbsences((prev) => {
-      const next = { ...prev };
-      if (isAbsent) delete next[key]; else next[key] = true;
-      return next;
-    });
-    if (isAbsent) {
-      api(`/api/absences?month=${m}&day=${d}`, "DELETE");
-    } else {
-      // Clear any overtime on this day first
-      setOvertime((prev) => {
-        if (!prev[key]) return prev;
-        const next = { ...prev };
-        delete next[key];
-        api("/api/overtime", "POST", { month: m, day: d, hours: 0 });
-        return next;
-      });
-      api("/api/absences", "POST", { month: m, day: d });
-    }
-  }, [absences]);
-
-  const setDayOT = useCallback((m, d, hours) => {
-    setOvertime((prev) => {
-      const next = { ...prev };
-      const key = `${m}-${d}`;
-      if (hours <= 0) delete next[key]; else next[key] = hours;
-      return next;
-    });
-    saveOT(m, d, hours);
-  }, [saveOT]);
-
-  const applyBulk = useCallback((hours) => {
-    if (selectedDays.size === 0) return;
-    const items = [...selectedDays].map((d) => ({ day: d, hours }));
-    setOvertime((prev) => {
-      const next = { ...prev };
-      selectedDays.forEach((d) => {
-        const key = `${cm}-${d}`;
-        if (hours <= 0) delete next[key]; else next[key] = hours;
-      });
-      return next;
-    });
-    api("/api/overtime", "POST", { bulk: true, month: cm, items });
     exitSelMode();
-  }, [selectedDays, cm, exitSelMode]);
-
-  const confirmBulk = useCallback(() => {
-    const val = parseFloat(bulkVal) || 0;
-    applyBulk(val);
-  }, [bulkVal, applyBulk]);
-
-  const fillMonth = useCallback((m) => {
-    const total = daysInMonth(m);
-    const items = [];
-    const updates = {};
-    for (let d = 1; d <= total; d++) {
-      const type = getDayType(m, d);
-      const key = `${m}-${d}`;
-      if (type === "workday" || type === "preholiday") {
-        updates[key] = otDefault;
-        items.push({ day: d, hours: otDefault });
-      } else if (isSaturday(m, d) && type === "weekend") {
-        updates[key] = satDefault;
-        items.push({ day: d, hours: satDefault });
-      }
-    }
-    setOvertime((prev) => ({ ...prev, ...updates }));
-    api("/api/overtime", "POST", { bulk: true, month: m, items });
-  }, [otDefault, satDefault]);
-
-  const clearMonth = useCallback(async (m) => {
-    setOvertime((prev) => {
-      const next = { ...prev };
-      const total = daysInMonth(m);
-      for (let d = 1; d <= total; d++) delete next[`${m}-${d}`];
-      return next;
-    });
-    await api(`/api/overtime?month=${m}`, "DELETE");
-  }, []);
+    setEditingDay(null);
+  }, [cm, exitSelMode]);
 
   const handleDayClick = useCallback((d) => {
     if (selMode) {
       toggleDay(d);
       return;
     }
-
     const key = `${cm}-${d}`;
     if (editingDay === key) { setEditingDay(null); return; }
     setEditingDay(key);
@@ -232,19 +64,15 @@ export default function DashboardClient({ user }) {
     setEditingDay(null);
   }, [editingDay, editVal, setDayOT]);
 
-  const startLongPress = useCallback((d) => {
-    touchMoved.current = false;
-    longPressTimer.current = setTimeout(() => {
-      if (!touchMoved.current) enterSelMode(d);
-    }, 400);
-  }, [enterSelMode]);
+  const applyBulk = useCallback((hours) => {
+    if (selectedDays.size === 0) return;
+    applyBulkOT(cm, selectedDays, hours);
+    exitSelMode();
+  }, [selectedDays, cm, applyBulkOT, exitSelMode]);
 
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
+  const confirmBulk = useCallback(() => {
+    applyBulk(parseFloat(bulkVal) || 0);
+  }, [bulkVal, applyBulk]);
 
   const monthStats = useMemo(
     () => calcMonthStats(overtime, absences, oklad, otRate),
@@ -337,7 +165,7 @@ export default function DashboardClient({ user }) {
     link.download = `Календарь_${MONTHS[cm]}_${YEAR}.xlsx`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [cm, overtime, monthStats]);
+  }, [cm, overtime, absences, monthStats]);
 
   const exportMonthJpeg = useCallback(async () => {
     if (!monthViewRef.current) return;
@@ -359,11 +187,9 @@ export default function DashboardClient({ user }) {
     const end = daysInMonth(cm);
     const wd1 = countWorkDays(cm, 1, 15);
     const wd2 = countWorkDays(cm, 16, end);
-    // Use adjustedOklad so deductions are reflected in both halves proportionally
     const dayRate = totalWork > 0 ? cmStats.adjustedOklad / totalWork : 0;
     const ot1 = sumOTHours(overtime, cm, 1, 15);
     const ot2 = sumOTHours(overtime, cm, 16, end);
-    // Effective OT per period: cover debt proportionally across periods
     const debtHours = cmStats.debtHours;
     const debtRatio1 = totalWork > 0 ? wd1 / totalWork : 0.5;
     const debt1 = debtHours * debtRatio1;
@@ -614,7 +440,7 @@ export default function DashboardClient({ user }) {
           <div className="mv-header">
             <div className="mv-title">{MONTHS[cm]}</div>
             <div className="mv-actions">
-              <button className="mv-btn mv-btn-fill" onClick={() => fillMonth(cm)}>Заполнить ({otDefault}ч+{satDefault}ч сб)</button>
+              <button className="mv-btn mv-btn-fill" onClick={() => fillMonth(cm, otDefault, satDefault)}>Заполнить ({otDefault}ч+{satDefault}ч сб)</button>
               <button className="mv-btn" onClick={exportMonthExcel}>Excel</button>
               <button className="mv-btn" onClick={exportMonthJpeg}>JPEG</button>
             </div>
