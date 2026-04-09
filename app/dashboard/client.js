@@ -9,8 +9,11 @@ import {
   getDayType, countWorkDays, sumOTHours, fmt,
   calcMonthStats, calcYearTotals,
 } from "../../lib/calendar";
-import useCalendarData from "./hooks/useCalendarData";
+import useCalendarData, { api } from "./hooks/useCalendarData";
 import useSelectionMode from "./hooks/useSelectionMode";
+import NotesPanel from "./components/NotesPanel";
+import AnalyticsDash from "./components/AnalyticsDash";
+import TabNav from "./components/TabNav";
 
 export default function DashboardClient({ user }) {
   const {
@@ -35,6 +38,8 @@ export default function DashboardClient({ user }) {
   const [cm, setCm] = useState(new Date().getMonth());
   const [editingDay, setEditingDay] = useState(null);
   const [editVal, setEditVal] = useState("");
+  const [notes, setNotes] = useState({});
+  const [noteDay, setNoteDay] = useState(null);
 
   const yearTableRef = useRef(null);
   const monthViewRef = useRef(null);
@@ -44,6 +49,28 @@ export default function DashboardClient({ user }) {
     exitSelMode();
     setEditingDay(null);
   }, [cm, exitSelMode]);
+
+  // Load notes after data is loaded
+  useEffect(() => {
+    if (!loaded) return;
+    api(`/api/notes?year=${YEAR}`)
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const map = {};
+          data.forEach((n) => { map[`${n.month}-${n.day}`] = n.note; });
+          setNotes(map);
+        }
+      });
+  }, [loaded]);
+
+  const saveNote = useCallback(async (text) => {
+    if (!noteDay) return;
+    const [m, d] = noteDay.split("-").map(Number);
+    const result = await api("/api/notes", "POST", { year: YEAR, month: m, day: d, note: text });
+    if (result && !result.error) {
+      setNotes((prev) => ({ ...prev, [noteDay]: text }));
+    }
+  }, [noteDay]);
 
   const handleDayClick = useCallback((d) => {
     if (selMode) {
@@ -248,6 +275,7 @@ export default function DashboardClient({ user }) {
         {isAbsent && !isSel && <div className="dc-abs-mark">✕</div>}
         {ot > 0 && !isSel && !isAbsent && <div className="dc-badge">+{ot}ч</div>}
         {type === "preholiday" && <div className="dc-star">*</div>}
+        {notes[key] && !isSel && !isAbsent && <div className="dc-note-dot" />}
       </td>
     );
   }
@@ -299,11 +327,19 @@ export default function DashboardClient({ user }) {
         <div className="hdr-sub">Калькулятор зарплаты с переработками</div>
       </div>
 
-      <div className="tabs">
+      <div className="tabs tabs-desktop">
         {[ ["calc", "Калькулятор"], ["year", "Годовой обзор"] ].map(([k, v]) => (
           <button key={k} className={`tb ${tab === k ? "tb-a" : ""}`} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
+      <TabNav
+        activeTab={tab === "calc" ? "calendar" : tab === "year" ? "analytics" : tab}
+        onTabChange={(t) => {
+          if (t === "calendar") setTab("calc");
+          else if (t === "analytics") setTab("year");
+          else setTab(t);
+        }}
+      />
 
       {tab === "calc" && (<>
         <div className="settings">
@@ -427,6 +463,7 @@ export default function DashboardClient({ user }) {
                 {editInfo.isAbsent ? "Снять пропуск" : "Не работал"}
               </button>
             )}
+            <button className="eb-abs" onClick={() => { setNoteDay(editingDay); setEditingDay(null); }}>📝 Заметка</button>
             <button className="eb-cancel" onClick={() => setEditingDay(null)}>✕</button>
             {!editInfo.isAbsent && (
               <div className="eb-quick">
@@ -435,6 +472,19 @@ export default function DashboardClient({ user }) {
             )}
           </div>
         )}
+
+        {noteDay && (() => {
+          const [nm, nd] = noteDay.split("-").map(Number);
+          return (
+            <NotesPanel
+              month={nm}
+              day={nd}
+              initialNote={notes[noteDay] || ""}
+              onSave={saveNote}
+              onClose={() => setNoteDay(null)}
+            />
+          );
+        })()}
 
         <div className="month-view" ref={monthViewRef}>
           <div className="mv-header">
@@ -471,7 +521,12 @@ export default function DashboardClient({ user }) {
             <button className="mv-btn" onClick={exportExcel}>Экспорт Excel</button>
             <button className="mv-btn" onClick={exportJpeg}>Экспорт JPEG</button>
           </div>
-          <table className="yo-tbl" ref={yearTableRef}>
+          <AnalyticsDash
+            monthStats={monthStats}
+            yearTotals={yearTotals}
+            onMonthClick={(i) => { setCm(i); setTab("calc"); }}
+          />
+          <table className="yo-tbl" ref={yearTableRef} style={{ display: "none" }}>
             <thead><tr><th>Месяц</th><th>Раб.дн.</th><th>Оклад</th><th>Вычет</th><th>Перераб.(ч)</th><th>Перераб.(₽)</th><th>Итого</th></tr></thead>
             <tbody>
               {monthStats.map((s, i) => (
