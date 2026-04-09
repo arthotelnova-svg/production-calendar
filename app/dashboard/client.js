@@ -3,261 +3,80 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { signOut } from "next-auth/react";
 import Image from "next/image";
 import "./dashboard.css";
-
-const YEAR = 2026;
-
-const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-const MONTHS_SHORT = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-const HOLIDAYS = new Set([
-  "0-1", "0-2", "0-3", "0-4", "0-5", "0-6", "0-7", "0-8", "0-9",
-  "1-23", "2-8", "2-9", "4-1", "4-2", "4-3", "4-9", "4-10", "4-11",
-  "5-12", "5-13", "5-14", "10-4", "11-31"
-]);
-const PRE_HOLIDAY = new Set(["3-30", "4-8", "5-11", "10-3"]);
-
-const MONTHLY_DATA = [
-  { work: 15, off: 16 }, { work: 19, off: 9 }, { work: 21, off: 10 }, { work: 22, off: 8 },
-  { work: 19, off: 12 }, { work: 21, off: 9 }, { work: 23, off: 8 }, { work: 21, off: 10 },
-  { work: 22, off: 8 }, { work: 22, off: 9 }, { work: 20, off: 10 }, { work: 22, off: 9 },
-];
-
-function daysInMonth(m) { return new Date(YEAR, m + 1, 0).getDate(); }
-function firstDow(m) { const d = new Date(YEAR, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
-function dow(m, day) { const d = new Date(YEAR, m, day).getDay(); return d === 0 ? 6 : d - 1; }
-function getDayType(month, day) {
-  const key = `${month}-${day}`;
-  if (HOLIDAYS.has(key)) return "holiday";
-  if (PRE_HOLIDAY.has(key)) return "preholiday";
-  const d = new Date(YEAR, month, day).getDay();
-  if (d === 0 || d === 6) return "weekend";
-  return "workday";
-}
-function isSaturday(m, d) { return new Date(YEAR, m, d).getDay() === 6; }
-function countWorkDays(m, from, to) {
-  let count = 0;
-  for (let d = from; d <= to; d++) {
-    const t = getDayType(m, d);
-    if (t === "workday" || t === "preholiday") count++;
-  }
-  return count;
-}
-function sumOTHours(overtime, m, from, to) {
-  let hours = 0;
-  for (let d = from; d <= to; d++) hours += overtime[`${m}-${d}`] || 0;
-  return hours;
-}
-function fmt(n) { return n === 0 ? "0" : n.toLocaleString("ru-RU", { maximumFractionDigits: 2 }); }
-
-async function api(url, method = "GET", body = null, signal = null) {
-  const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (body) opts.body = JSON.stringify(body);
-  if (signal) opts.signal = signal;
-  try {
-    const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  } catch (e) {
-    if (e.name === "AbortError") return "aborted";
-    console.error("API error:", url, e);
-    return null;
-  }
-}
+import {
+  YEAR, MONTHS, MONTHS_SHORT, WEEKDAYS,
+  daysInMonth, firstDow, dow, isSaturday,
+  getDayType, countWorkDays, sumOTHours, fmt,
+  calcMonthStats, calcYearTotals,
+} from "../../lib/calendar";
+import useCalendarData, { api } from "./hooks/useCalendarData";
+import useSelectionMode from "./hooks/useSelectionMode";
+import NotesPanel from "./components/NotesPanel";
+import AnalyticsDash from "./components/AnalyticsDash";
+import TabNav from "./components/TabNav";
 
 export default function DashboardClient({ user }) {
+  const {
+    oklad, setOklad,
+    otRate, setOtRate,
+    otDefault, setOtDefault,
+    satDefault, setSatDefault,
+    overtime, absences,
+    loaded, saveError,
+    setDayOT, applyBulkOT, fillMonth, clearMonth, toggleAbsence,
+  } = useCalendarData();
+
+  const {
+    selMode, selectedDays,
+    bulkVal, setBulkVal,
+    exitSelMode, enterSelMode, toggleDay,
+    startLongPress, cancelLongPress,
+    touchMoved,
+  } = useSelectionMode();
+
   const [tab, setTab] = useState("calc");
   const [cm, setCm] = useState(new Date().getMonth());
-  const [oklad, setOklad] = useState(135000);
-  const [otRate, setOtRate] = useState(164);
-  const [otDefault, setOtDefault] = useState(2);
-  const [satDefault, setSatDefault] = useState(8);
-  const [overtime, setOvertime] = useState({});
   const [editingDay, setEditingDay] = useState(null);
   const [editVal, setEditVal] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  const [notes, setNotes] = useState({});
+  const [noteDay, setNoteDay] = useState(null);
 
-  const [absences, setAbsences] = useState({});
-
-  const [selMode, setSelMode] = useState(false);
-  const [selectedDays, setSelectedDays] = useState(new Set());
-  const [bulkVal, setBulkVal] = useState("");
-
-  const longPressTimer = useRef(null);
-  const touchMoved = useRef(false);
-  const selModeTimer = useRef(null);
   const yearTableRef = useRef(null);
   const monthViewRef = useRef(null);
-  const settingsAbortRef = useRef(null);
 
+  // Reset selection and edit when changing month
   useEffect(() => {
-    return () => {
-      if (selModeTimer.current) clearTimeout(selModeTimer.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    setSelMode(false);
-    setSelectedDays(new Set());
+    exitSelMode();
     setEditingDay(null);
-  }, [cm]);
+  }, [cm, exitSelMode]);
 
-  const exitSelMode = useCallback(() => {
-    setSelMode(false);
-    setSelectedDays(new Set());
-    setBulkVal("");
-  }, []);
-
-  const enterSelMode = useCallback((day) => {
-    setEditingDay(null);
-    setSelMode(true);
-    setSelectedDays(new Set([day]));
-    setBulkVal("");
-    if (navigator.vibrate) navigator.vibrate(40);
-  }, []);
-
-  const toggleDay = useCallback((day) => {
-    setSelectedDays((prev) => {
-      const next = new Set(prev);
-      if (next.has(day)) {
-        next.delete(day);
-        if (next.size === 0) {
-          if (selModeTimer.current) clearTimeout(selModeTimer.current);
-          selModeTimer.current = setTimeout(() => setSelMode(false), 50);
-        }
-      } else {
-        next.add(day);
-      }
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    Promise.all([api("/api/settings"), api("/api/overtime"), api("/api/absences")]).then(([s, o, a]) => {
-      if (s && !s.error) {
-        setOklad(s.oklad ?? 135000);
-        setOtRate(s.ot_rate ?? 164);
-        setOtDefault(s.ot_weekday ?? 2);
-        setSatDefault(s.ot_saturday ?? 8);
-      }
-      if (o && !o.error) setOvertime(o);
-      if (a && !a.error) setAbsences(a);
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, []);
-
+  // Load notes after data is loaded
   useEffect(() => {
     if (!loaded) return;
-    const t = setTimeout(async () => {
-      if (settingsAbortRef.current) settingsAbortRef.current.abort();
-      settingsAbortRef.current = new AbortController();
-      const result = await api("/api/settings", "POST", { oklad, ot_rate: otRate, ot_weekday: otDefault, ot_saturday: satDefault }, settingsAbortRef.current.signal);
-      if (result === null) {
-        setSaveError(true);
-        setTimeout(() => setSaveError(false), 4000);
-      }
-    }, 800);
-    return () => clearTimeout(t);
-  }, [oklad, otRate, otDefault, satDefault, loaded]);
-
-  const saveOT = useCallback((m, d, hours) => {
-    api("/api/overtime", "POST", { month: m, day: d, hours }).then((result) => {
-      if (result === null) {
-        setSaveError(true);
-        setTimeout(() => setSaveError(false), 4000);
-      }
-    });
-  }, []);
-
-  const toggleAbsence = useCallback((m, d) => {
-    const key = `${m}-${d}`;
-    const isAbsent = absences[key];
-    setAbsences((prev) => {
-      const next = { ...prev };
-      if (isAbsent) delete next[key]; else next[key] = true;
-      return next;
-    });
-    if (isAbsent) {
-      api(`/api/absences?month=${m}&day=${d}`, "DELETE");
-    } else {
-      // Clear any overtime on this day first
-      setOvertime((prev) => {
-        if (!prev[key]) return prev;
-        const next = { ...prev };
-        delete next[key];
-        api("/api/overtime", "POST", { month: m, day: d, hours: 0 });
-        return next;
+    api(`/api/notes?year=${YEAR}`)
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const map = {};
+          data.forEach((n) => { map[`${n.month}-${n.day}`] = n.note; });
+          setNotes(map);
+        }
       });
-      api("/api/absences", "POST", { month: m, day: d });
+  }, [loaded]);
+
+  const saveNote = useCallback(async (text) => {
+    if (!noteDay) return;
+    const [m, d] = noteDay.split("-").map(Number);
+    const result = await api("/api/notes", "POST", { year: YEAR, month: m, day: d, note: text });
+    if (result && !result.error) {
+      setNotes((prev) => ({ ...prev, [noteDay]: text }));
     }
-  }, [absences]);
-
-  const setDayOT = useCallback((m, d, hours) => {
-    setOvertime((prev) => {
-      const next = { ...prev };
-      const key = `${m}-${d}`;
-      if (hours <= 0) delete next[key]; else next[key] = hours;
-      return next;
-    });
-    saveOT(m, d, hours);
-  }, [saveOT]);
-
-  const applyBulk = useCallback((hours) => {
-    if (selectedDays.size === 0) return;
-    const items = [...selectedDays].map((d) => ({ day: d, hours }));
-    setOvertime((prev) => {
-      const next = { ...prev };
-      selectedDays.forEach((d) => {
-        const key = `${cm}-${d}`;
-        if (hours <= 0) delete next[key]; else next[key] = hours;
-      });
-      return next;
-    });
-    api("/api/overtime", "POST", { bulk: true, month: cm, items });
-    exitSelMode();
-  }, [selectedDays, cm, exitSelMode]);
-
-  const confirmBulk = useCallback(() => {
-    const val = parseFloat(bulkVal) || 0;
-    applyBulk(val);
-  }, [bulkVal, applyBulk]);
-
-  const fillMonth = useCallback((m) => {
-    const total = daysInMonth(m);
-    const items = [];
-    const updates = {};
-    for (let d = 1; d <= total; d++) {
-      const type = getDayType(m, d);
-      const key = `${m}-${d}`;
-      if (type === "workday" || type === "preholiday") {
-        updates[key] = otDefault;
-        items.push({ day: d, hours: otDefault });
-      } else if (isSaturday(m, d) && type === "weekend") {
-        updates[key] = satDefault;
-        items.push({ day: d, hours: satDefault });
-      }
-    }
-    setOvertime((prev) => ({ ...prev, ...updates }));
-    api("/api/overtime", "POST", { bulk: true, month: m, items });
-  }, [otDefault, satDefault]);
-
-  const clearMonth = useCallback(async (m) => {
-    setOvertime((prev) => {
-      const next = { ...prev };
-      const total = daysInMonth(m);
-      for (let d = 1; d <= total; d++) delete next[`${m}-${d}`];
-      return next;
-    });
-    await api(`/api/overtime?month=${m}`, "DELETE");
-  }, []);
+  }, [noteDay]);
 
   const handleDayClick = useCallback((d) => {
     if (selMode) {
       toggleDay(d);
       return;
     }
-
     const key = `${cm}-${d}`;
     if (editingDay === key) { setEditingDay(null); return; }
     setEditingDay(key);
@@ -272,46 +91,22 @@ export default function DashboardClient({ user }) {
     setEditingDay(null);
   }, [editingDay, editVal, setDayOT]);
 
-  const startLongPress = useCallback((d) => {
-    touchMoved.current = false;
-    longPressTimer.current = setTimeout(() => {
-      if (!touchMoved.current) enterSelMode(d);
-    }, 400);
-  }, [enterSelMode]);
+  const applyBulk = useCallback((hours) => {
+    if (selectedDays.size === 0) return;
+    applyBulkOT(cm, selectedDays, hours);
+    exitSelMode();
+  }, [selectedDays, cm, applyBulkOT, exitSelMode]);
 
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
+  const confirmBulk = useCallback(() => {
+    applyBulk(parseFloat(bulkVal) || 0);
+  }, [bulkVal, applyBulk]);
 
-  const monthStats = useMemo(() => {
-    return MONTHS.map((_, m) => {
-      let otHours = 0;
-      let absentCount = 0;
-      for (let d = 1; d <= daysInMonth(m); d++) {
-        const key = `${m}-${d}`;
-        if (overtime[key]) otHours += overtime[key];
-        if (absences[key]) absentCount++;
-      }
-      const workDays = MONTHLY_DATA[m].work;
-      const debtHours = absentCount * 8;
-      const effectiveOT = Math.max(0, otHours - debtHours);
-      const uncoveredHours = Math.max(0, debtHours - otHours);
-      const deduction = workDays > 0 ? (uncoveredHours / 8) * (oklad / workDays) : 0;
-      const adjustedOklad = oklad - deduction;
-      const otPay = effectiveOT * otRate;
-      const total = adjustedOklad + otPay;
-      return { workDays, otHours, absentCount, debtHours, effectiveOT, deduction, adjustedOklad, otPay, oklad, total };
-    });
-  }, [overtime, absences, otRate, oklad]);
+  const monthStats = useMemo(
+    () => calcMonthStats(overtime, absences, oklad, otRate),
+    [overtime, absences, oklad, otRate]
+  );
 
-  const yearTotals = useMemo(() => {
-    let otH = 0, otP = 0, totalDeduction = 0, adjOklad = 0;
-    monthStats.forEach((s) => { otH += s.effectiveOT; otP += s.otPay; totalDeduction += s.deduction; adjOklad += s.adjustedOklad; });
-    return { otHours: otH, otPay: otP, deduction: totalDeduction, oklad: adjOklad, total: adjOklad + otP };
-  }, [monthStats]);
+  const yearTotals = useMemo(() => calcYearTotals(monthStats), [monthStats]);
 
   const exportExcel = useCallback(async () => {
     const XLSX = await import("xlsx");
@@ -397,7 +192,7 @@ export default function DashboardClient({ user }) {
     link.download = `Календарь_${MONTHS[cm]}_${YEAR}.xlsx`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [cm, overtime, monthStats]);
+  }, [cm, overtime, absences, monthStats]);
 
   const exportMonthJpeg = useCallback(async () => {
     if (!monthViewRef.current) return;
@@ -419,11 +214,9 @@ export default function DashboardClient({ user }) {
     const end = daysInMonth(cm);
     const wd1 = countWorkDays(cm, 1, 15);
     const wd2 = countWorkDays(cm, 16, end);
-    // Use adjustedOklad so deductions are reflected in both halves proportionally
     const dayRate = totalWork > 0 ? cmStats.adjustedOklad / totalWork : 0;
     const ot1 = sumOTHours(overtime, cm, 1, 15);
     const ot2 = sumOTHours(overtime, cm, 16, end);
-    // Effective OT per period: cover debt proportionally across periods
     const debtHours = cmStats.debtHours;
     const debtRatio1 = totalWork > 0 ? wd1 / totalWork : 0.5;
     const debt1 = debtHours * debtRatio1;
@@ -482,6 +275,7 @@ export default function DashboardClient({ user }) {
         {isAbsent && !isSel && <div className="dc-abs-mark">✕</div>}
         {ot > 0 && !isSel && !isAbsent && <div className="dc-badge">+{ot}ч</div>}
         {type === "preholiday" && <div className="dc-star">*</div>}
+        {notes[key] && !isSel && !isAbsent && <div className="dc-note-dot" />}
       </td>
     );
   }
@@ -533,11 +327,19 @@ export default function DashboardClient({ user }) {
         <div className="hdr-sub">Калькулятор зарплаты с переработками</div>
       </div>
 
-      <div className="tabs">
+      <div className="tabs tabs-desktop">
         {[ ["calc", "Калькулятор"], ["year", "Годовой обзор"] ].map(([k, v]) => (
           <button key={k} className={`tb ${tab === k ? "tb-a" : ""}`} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
+      <TabNav
+        activeTab={tab === "calc" ? "calendar" : tab === "year" ? "analytics" : tab}
+        onTabChange={(t) => {
+          if (t === "calendar") setTab("calc");
+          else if (t === "analytics") setTab("year");
+          else setTab(t);
+        }}
+      />
 
       {tab === "calc" && (<>
         <div className="settings">
@@ -661,6 +463,7 @@ export default function DashboardClient({ user }) {
                 {editInfo.isAbsent ? "Снять пропуск" : "Не работал"}
               </button>
             )}
+            <button className="eb-abs" onClick={() => { setNoteDay(editingDay); setEditingDay(null); }}>📝 Заметка</button>
             <button className="eb-cancel" onClick={() => setEditingDay(null)}>✕</button>
             {!editInfo.isAbsent && (
               <div className="eb-quick">
@@ -670,11 +473,24 @@ export default function DashboardClient({ user }) {
           </div>
         )}
 
+        {noteDay && (() => {
+          const [nm, nd] = noteDay.split("-").map(Number);
+          return (
+            <NotesPanel
+              month={nm}
+              day={nd}
+              initialNote={notes[noteDay] || ""}
+              onSave={saveNote}
+              onClose={() => setNoteDay(null)}
+            />
+          );
+        })()}
+
         <div className="month-view" ref={monthViewRef}>
           <div className="mv-header">
             <div className="mv-title">{MONTHS[cm]}</div>
             <div className="mv-actions">
-              <button className="mv-btn mv-btn-fill" onClick={() => fillMonth(cm)}>Заполнить ({otDefault}ч+{satDefault}ч сб)</button>
+              <button className="mv-btn mv-btn-fill" onClick={() => fillMonth(cm, otDefault, satDefault)}>Заполнить ({otDefault}ч+{satDefault}ч сб)</button>
               <button className="mv-btn" onClick={exportMonthExcel}>Excel</button>
               <button className="mv-btn" onClick={exportMonthJpeg}>JPEG</button>
             </div>
@@ -705,7 +521,12 @@ export default function DashboardClient({ user }) {
             <button className="mv-btn" onClick={exportExcel}>Экспорт Excel</button>
             <button className="mv-btn" onClick={exportJpeg}>Экспорт JPEG</button>
           </div>
-          <table className="yo-tbl" ref={yearTableRef}>
+          <AnalyticsDash
+            monthStats={monthStats}
+            yearTotals={yearTotals}
+            onMonthClick={(i) => { setCm(i); setTab("calc"); }}
+          />
+          <table className="yo-tbl" ref={yearTableRef} style={{ display: "none" }}>
             <thead><tr><th>Месяц</th><th>Раб.дн.</th><th>Оклад</th><th>Вычет</th><th>Перераб.(ч)</th><th>Перераб.(₽)</th><th>Итого</th></tr></thead>
             <tbody>
               {monthStats.map((s, i) => (

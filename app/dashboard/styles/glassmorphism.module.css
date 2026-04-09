@@ -384,3 +384,96 @@
     transform: none !important;
   }
 }
+
+/* ===== Month Selector Grid ===== */
+.monthSelectorGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1024px) {
+  .monthSelectorGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .monthSelectorGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ===== Analytics Dashboard ===== */
+.analyticsDash {
+  padding: 20px;
+}
+
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+
+@media (max-width: 640px) {
+  .metricsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metricCard {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+}
+
+.metricLabel {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary, #b0aed0);
+  margin-bottom: 6px;
+}
+
+.metricValue {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text-primary, #f5f3ff);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* ===== Notes Panel ===== */
+.notesPanel {
+  padding: 16px;
+}
+
+.noteTextarea {
+  width: 100%;
+  min-height: 120px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--color-text-primary, #f5f3ff);
+  font-size: 13px;
+  resize: vertical;
+  outline: none;
+  margin: 10px 0;
+}
+
+.noteTextarea:focus {
+  border-color: rgba(108, 99, 255, 0.5);
+  box-shadow: 0 0 12px rgba(108, 99, 255, 0.2);
+}
+
+.noteCharCount {
+  font-size: 11px;
+  color: var(--color-text-secondary, #b0aed0);
+  text-align: right;
+  margin-bottom: 8px;
+}
