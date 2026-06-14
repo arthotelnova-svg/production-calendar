@@ -49,6 +49,30 @@ export default async function LoginPage() {
             Войти через Google
           </button>
         </form>
+
+        <div style={{ margin: "16px 0", color: "#4b5563", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <span style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", flex: 1 }}></span>
+          <span>или</span>
+          <span style={{ height: 1, backgroundColor: "rgba(255,255,255,0.06)", flex: 1 }}></span>
+        </div>
+
+        <form action={async () => {
+          "use server";
+          await signIn("credentials", { redirectTo: "/dashboard" });
+        }}>
+          <button type="submit" style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+            width: "100%", padding: "14px 24px", background: "rgba(255,255,255,0.04)", color: "#fff",
+            border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, fontSize: 15, fontWeight: 700,
+            fontFamily: "'Manrope', sans-serif", cursor: "pointer", transition: "all 0.15s",
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.8 }}>
+              <path d="M15 7h3a5 5 0 0 1 5 5v2a5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5v-2a5 5 0 0 1 5-5h3" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+            </svg>
+            Войти как гость (Тестовый вход)
+          </button>
+        </form>
       </div>
     </div>
   );
