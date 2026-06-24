@@ -175,6 +175,25 @@ export default function DashboardClient({ user }) {
     setBulkVal("");
   }, []);
 
+  const reloadYearData = useCallback(() => {
+    setLoaded(false);
+    return Promise.all([
+      api("/api/settings"),
+      api(`/api/overtime?year=${year}`),
+      api(`/api/absences?year=${year}`)
+    ]).then(([s, o, a]) => {
+      if (s && !s.error) {
+        setOklad(s.oklad ?? 135000);
+        setManualOtRate(s.ot_rate ?? 164);
+        setOtDefault(s.ot_weekday ?? 2);
+        setSatDefault(s.ot_saturday ?? 8);
+      }
+      if (o && !o.error) setOvertime(o); else setOvertime({});
+      if (a && !a.error) setAbsences(a); else setAbsences({});
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, [year]);
+
   const enterSelMode = useCallback((day) => {
     setEditingDay(null);
     setSelMode(true);
@@ -201,23 +220,8 @@ export default function DashboardClient({ user }) {
 
   // Запрос настроек и данных при смене года
   useEffect(() => {
-    setLoaded(false);
-    Promise.all([
-      api("/api/settings"),
-      api(`/api/overtime?year=${year}`),
-      api(`/api/absences?year=${year}`)
-    ]).then(([s, o, a]) => {
-      if (s && !s.error) {
-        setOklad(s.oklad ?? 135000);
-        setManualOtRate(s.ot_rate ?? 164);
-        setOtDefault(s.ot_weekday ?? 2);
-        setSatDefault(s.ot_saturday ?? 8);
-      }
-      if (o && !o.error) setOvertime(o); else setOvertime({});
-      if (a && !a.error) setAbsences(a); else setAbsences({});
-      setLoaded(true);
-    }).catch(() => setLoaded(true));
-  }, [year]);
+    reloadYearData();
+  }, [reloadYearData]);
 
   // Сохранение настроек при их редактировании
   useEffect(() => {
@@ -235,7 +239,7 @@ export default function DashboardClient({ user }) {
   }, [oklad, otRate, otDefault, satDefault, loaded]);
 
   const saveOT = useCallback((y, m, d, hours) => {
-    api("/api/overtime", "POST", { year: y, month: m, day: d, hours }).then((result) => {
+    api("/api/overtime", "POST", { year: y, month: m, day: d, hours, source: "single_day" }).then((result) => {
       if (result === null) {
         setSaveError(true);
         setTimeout(() => setSaveError(false), 4000);
@@ -251,18 +255,18 @@ export default function DashboardClient({ user }) {
       if (isAbsent) delete next[key]; else next[key] = true;
       return next;
     });
-    if (isAbsent) {
-      api(`/api/absences?year=${y}&month=${m}&day=${d}`, "DELETE");
-    } else {
-      // Очищаем переработки в этот день перед отметкой пропуска
+    if (!isAbsent) {
       setOvertime((prev) => {
         if (!prev[key]) return prev;
         const next = { ...prev };
         delete next[key];
-        api("/api/overtime", "POST", { year: y, month: m, day: d, hours: 0 });
         return next;
       });
-      api("/api/absences", "POST", { year: y, month: m, day: d });
+    }
+    if (isAbsent) {
+      api(`/api/absences?year=${y}&month=${m}&day=${d}&source=absence_delete`, "DELETE");
+    } else {
+      api("/api/absences", "POST", { year: y, month: m, day: d, source: "absence_single" });
     }
   }, [absences]);
 
@@ -279,6 +283,9 @@ export default function DashboardClient({ user }) {
   const applyBulk = useCallback((hours) => {
     if (selectedDays.size === 0) return;
     const items = [...selectedDays].map((d) => ({ day: d, hours }));
+    const changed = items.filter(({ day }) => (overtime[`${cm}-${day}`] || 0) !== hours).length;
+    const overwrite = items.filter(({ day }) => overtime[`${cm}-${day}`] !== undefined).length;
+    if (!window.confirm(`Изменить ${changed} дн. (${overwrite} уже заполнены) на ${hours}ч?`)) return;
     setOvertime((prev) => {
       const next = { ...prev };
       selectedDays.forEach((d) => {
@@ -287,9 +294,9 @@ export default function DashboardClient({ user }) {
       });
       return next;
     });
-    api("/api/overtime", "POST", { bulk: true, year, month: cm, items });
+    api("/api/overtime", "POST", { bulk: true, year, month: cm, items, source: "bulk_apply" });
     exitSelMode();
-  }, [selectedDays, cm, year, exitSelMode]);
+  }, [selectedDays, cm, year, exitSelMode, overtime]);
 
   const confirmBulk = useCallback(() => {
     const val = parseFloat(bulkVal) || 0;
@@ -297,6 +304,11 @@ export default function DashboardClient({ user }) {
   }, [bulkVal, applyBulk]);
 
   const fillMonth = useCallback((m) => {
+    if (otDefault <= 0 && satDefault <= 0) {
+      window.alert("Автозаполнение 0ч/0ч отключено: оно очищает месяц. Для очистки используй отдельную кнопку/действие удаления.");
+      return;
+    }
+
     const total = daysInMonth(year, m);
     const items = [];
     const updates = {};
@@ -311,19 +323,57 @@ export default function DashboardClient({ user }) {
         items.push({ day: d, hours: satDefault });
       }
     }
+    const overwrite = items.filter(({ day }) => overtime[`${m}-${day}`] !== undefined).length;
+    if (!window.confirm(`Перезаполнить ${items.length} дн. в месяце ${MONTHS[m]}? Уже заполнено: ${overwrite}.`)) return;
     setOvertime((prev) => ({ ...prev, ...updates }));
-    api("/api/overtime", "POST", { bulk: true, year, month: m, items });
-  }, [year, otDefault, satDefault]);
+    api("/api/overtime", "POST", { bulk: true, year, month: m, items, source: "fill_month" });
+  }, [year, otDefault, satDefault, overtime]);
 
   const clearMonth = useCallback(async (m) => {
+    const total = daysInMonth(year, m);
+    const filled = Array.from({ length: total }, (_, idx) => overtime[`${m}-${idx + 1}`] !== undefined).filter(Boolean).length;
+    if (!window.confirm(`Очистить ${filled} заполненных дн. в месяце ${MONTHS[m]}?`)) return;
     setOvertime((prev) => {
       const next = { ...prev };
-      const total = daysInMonth(year, m);
       for (let d = 1; d <= total; d++) delete next[`${m}-${d}`];
       return next;
     });
-    await api(`/api/overtime?year=${year}&month=${m}`, "DELETE");
-  }, [year]);
+    await api(`/api/overtime?year=${year}&month=${m}&source=clear_month`, "DELETE");
+  }, [year, overtime]);
+
+  const undoLastBulk = useCallback(async () => {
+    if (!window.confirm(`Откатить последнее массовое изменение в месяце ${MONTHS[cm]}?`)) return;
+    const result = await api("/api/recovery", "POST", { mode: "undo_last_bulk", year, month: cm });
+    if (!result || result.error) {
+      window.alert(result?.error || "Не удалось откатить последнее массовое изменение");
+      return;
+    }
+    await reloadYearData();
+    window.alert("Последнее массовое изменение откатили.");
+  }, [cm, year, reloadYearData]);
+
+  const restoreMonthFromHistory = useCallback(async () => {
+    const result = await api(`/api/recovery?year=${year}&month=${cm}`);
+    const snapshots = result?.snapshots || [];
+    if (!snapshots.length) {
+      window.alert("Для этого месяца ещё нет снимков истории.");
+      return;
+    }
+    const list = snapshots
+      .slice(0, 8)
+      .map((s) => `${s.id}: ${s.created_at} · ${s.source} · OT ${s.overtime_count} · ABS ${s.absence_count}`)
+      .join("\n");
+    const chosen = window.prompt(`Введи ID снимка для восстановления месяца ${MONTHS[cm]}:\n\n${list}`);
+    if (!chosen) return;
+    if (!window.confirm(`Восстановить месяц ${MONTHS[cm]} из снимка #${chosen}?`)) return;
+    const restored = await api("/api/recovery", "POST", { mode: "restore_snapshot", snapshot_id: chosen, year, month: cm });
+    if (!restored || restored.error) {
+      window.alert(restored?.error || "Не удалось восстановить месяц");
+      return;
+    }
+    await reloadYearData();
+    window.alert(`Месяц ${MONTHS[cm]} восстановлен из снимка #${chosen}.`);
+  }, [cm, year, reloadYearData]);
 
   const handleDayClick = useCallback((d) => {
     if (selMode) {
@@ -709,7 +759,16 @@ export default function DashboardClient({ user }) {
           <div className="mv-header">
             <div className="mv-title">{MONTHS[cm]}</div>
             <div className="mv-actions">
-              <button className="mv-btn mv-btn-fill" onClick={() => fillMonth(cm)}>Автозаполнение ({otDefault}ч будни / {satDefault}ч сб)</button>
+              <button
+                className="mv-btn mv-btn-fill"
+                onClick={() => fillMonth(cm)}
+                title={otDefault <= 0 && satDefault <= 0 ? "0ч/0ч заблокировано, чтобы не очищать месяц" : undefined}
+              >
+                Автозаполнение ({otDefault}ч будни / {satDefault}ч сб)
+              </button>
+              <button className="mv-btn" onClick={() => clearMonth(cm)}>Очистить месяц</button>
+              <button className="mv-btn" onClick={undoLastBulk}>Отменить последнее массовое</button>
+              <button className="mv-btn" onClick={restoreMonthFromHistory}>История / восстановить</button>
               <button className="mv-btn" onClick={exportMonthExcel}>Экспорт Excel</button>
               <button className="mv-btn" onClick={exportMonthJpeg}>JPEG снимок</button>
             </div>

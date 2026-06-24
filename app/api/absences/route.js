@@ -1,6 +1,7 @@
 import { auth } from "../../../auth";
 import { getDb } from "../../../lib/db";
 import { validateMonth, validateDay } from "../../../lib/validators";
+import { recordMonthSnapshot } from "../../../lib/history";
 import { NextResponse } from "next/server";
 
 export async function GET(request) {
@@ -41,17 +42,31 @@ export async function POST(request) {
     const db = getDb();
     const year = parseInt(body.year, 10) || 2026;
     const ins = db.prepare("INSERT OR IGNORE INTO absences (user_id, year, month, day) VALUES (?, ?, ?, ?)");
+    const delOvertimeDay = db.prepare("DELETE FROM overtime WHERE user_id = ? AND year = ? AND month = ? AND day = ?");
 
     if (body.bulk) {
       const month = validateMonth(body.month);
       if (month === null) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
       if (!Array.isArray(body.items)) return NextResponse.json({ error: "Invalid items" }, { status: 400 });
 
+      recordMonthSnapshot(db, {
+        userId: session.user.id,
+        actorUserId: session.user.id,
+        year,
+        month,
+        action: "absence_bulk_replace",
+        source: body.source || "absence_bulk",
+        meta: { items_count: body.items.length },
+      });
+
       const txn = db.transaction((items, y, m) => {
         db.prepare("DELETE FROM absences WHERE user_id = ? AND year = ? AND month = ?").run(session.user.id, y, m);
         items.forEach(({ day }) => {
           const d = validateDay(day);
-          if (d !== null) ins.run(session.user.id, y, m, d);
+          if (d !== null) {
+            ins.run(session.user.id, y, m, d);
+            delOvertimeDay.run(session.user.id, y, m, d);
+          }
         });
       });
       txn(body.items, year, month);
@@ -61,7 +76,22 @@ export async function POST(request) {
       if (month === null || day === null) {
         return NextResponse.json({ error: "Invalid data" }, { status: 400 });
       }
-      ins.run(session.user.id, year, month, day);
+
+      recordMonthSnapshot(db, {
+        userId: session.user.id,
+        actorUserId: session.user.id,
+        year,
+        month,
+        action: "absence_set",
+        source: body.source || "absence_single",
+        meta: { day },
+      });
+
+      const txn = db.transaction(() => {
+        ins.run(session.user.id, year, month, day);
+        delOvertimeDay.run(session.user.id, year, month, day);
+      });
+      txn();
     }
 
     return NextResponse.json({ ok: true });
@@ -86,6 +116,15 @@ export async function DELETE(request) {
     if (month === null) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
 
     const db = getDb();
+    recordMonthSnapshot(db, {
+      userId: session.user.id,
+      actorUserId: session.user.id,
+      year,
+      month,
+      action: dayParam !== null ? "absence_delete" : "absence_month_delete",
+      source: searchParams.get("source") || "absence_delete",
+      meta: { day: dayParam !== null ? Number(dayParam) : null },
+    });
     if (dayParam !== null) {
       const day = validateDay(dayParam);
       if (day === null) return NextResponse.json({ error: "Invalid day" }, { status: 400 });
