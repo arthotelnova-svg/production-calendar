@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+  --pc-bg: #050b12;
+  --pc-bg-2: #07111c;
+  --pc-surface: rgba(16, 25, 36, 0.86);
+  --pc-surface-strong: rgba(20, 31, 44, 0.94);
+  --pc-surface-soft: rgba(255, 255, 255, 0.045);
+  --pc-border: rgba(255, 255, 255, 0.08);
+  --pc-border-strong: rgba(255, 255, 255, 0.14);
+  --pc-text: #f5f7fb;
+  --pc-text-muted: #93a0b3;
+  --pc-text-dim: #5f6b7b;
+  --pc-blue: #0a84ff;
+  --pc-blue-2: #2f8cff;
+  --pc-green: #30d158;
+  --pc-green-deep: #0f3d24;
+  --pc-orange: #ff9f0a;
+  --pc-red: #ff453a;
+  --pc-purple: #bf5af2;
+  --pc-radius-xs: 10px;
+  --pc-radius-sm: 14px;
+  --pc-radius-md: 18px;
+  --pc-radius-lg: 24px;
+  --pc-shadow-card: 0 18px 50px rgba(0, 0, 0, 0.34);
+  --pc-shadow-blue: 0 12px 34px rgba(10, 132, 255, 0.28);
+  --pc-blur: blur(22px) saturate(160%);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --pc-bg: #f4f7fb;
+    --pc-bg-2: #eef3f8;
+    --pc-surface: rgba(255, 255, 255, 0.86);
+    --pc-surface-strong: rgba(255, 255, 255, 0.96);
+    --pc-surface-soft: rgba(12, 22, 36, 0.04);
+    --pc-border: rgba(12, 22, 36, 0.08);
+    --pc-border-strong: rgba(12, 22, 36, 0.12);
+    --pc-text: #101722;
+    --pc-text-muted: #586575;
+    --pc-text-dim: #8c98a8;
+  }
+}
